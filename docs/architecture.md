@@ -15,7 +15,7 @@ The tenx-for-clickhouse port replicates the same architectural pattern as [tenx-
 
 ```
 ┌──────────────────────┐
-│ Edge Optimizer       │  (separate Log10x product)
+│ Receiver       │  (separate Log10x product)
 │ extracts templates,  │
 │ emits encoded events │
 └──────────────────────┘
@@ -156,7 +156,7 @@ The on-disk measurements show a non-obvious result: **ZSTD's pattern detection o
 
 Under LZ4 (weaker compression), templating contributes more incremental savings because LZ4 misses patterns that ZSTD would catch.
 
-Practical implication: **storage savings vary by codec**. The savings story works best on LZ4 customers (the ClickHouse default on hot tiers). For ZSTD customers, the templating layer's storage contribution is small; most savings come from event count reduction via the Edge Optimizer's grouping module.
+Practical implication: **storage savings vary by codec**. The savings story works best on LZ4 customers (the ClickHouse default on hot tiers). For ZSTD customers, the templating layer's storage contribution is small; most savings come from event count reduction via the Receiver's grouping module.
 
 Other value drivers — transport, ingest CPU, background merge CPU, query speed via `templateHash` filtering — are codec-independent.
 
@@ -198,4 +198,4 @@ For completeness, options considered and rejected:
 - [ClickHouse Dictionary documentation](https://clickhouse.com/docs/en/sql-reference/dictionaries)
 - [ClickHouse SQL UDF documentation](https://clickhouse.com/docs/en/sql-reference/functions/udf)
 - [Joda Time pattern reference](https://www.joda.org/joda-time/apidocs/org/joda/time/format/DateTimeFormat.html) (the patterns `formatDateTimeInJodaSyntax` accepts)
-- [Log10x Edge Optimizer documentation](https://doc.log10x.com/apps/edge/optimizer/)
+- [Log10x Receiver documentation](https://doc.log10x.com/apps/receiver/)

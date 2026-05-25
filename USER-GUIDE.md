@@ -21,7 +21,7 @@ This guide covers the full workflow for using tenx-for-clickhouse to search Log1
 ## Prerequisites
 
 - **ClickHouse 24.x or later** (tested through 26.x; self-hosted, Altinity Cloud, and ClickHouse Cloud all work identically)
-- **[Log10x Edge Optimizer](https://doc.log10x.com/apps/edge/optimizer/)** producing two files:
+- **[Log10x Receiver](https://doc.log10x.com/apps/receiver/)** producing two files:
   - `templates.json` — one JSON object per line: `{"templateHash":"<hash>","template":"<pattern>"}`
   - `encoded.log` — one encoded event per line, format: `{...envelope...,"log":"~<hash>[,<v1>,<v2>,...]",...}`
 
@@ -349,7 +349,7 @@ SELECT status FROM system.dictionaries WHERE name = 'templates_dict';
 SYSTEM RELOAD DICTIONARY tenx.templates_dict;
 ```
 
-If the template isn't in the source table, it was never produced by the Edge Optimizer for that event. Check the Edge Optimizer logs.
+If the template isn't in the source table, it was never produced by the Receiver for that event. Check the Receiver logs.
 
 ### Query latency on `tenx.events` is ~600ms per query
 

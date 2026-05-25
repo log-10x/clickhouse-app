@@ -65,4 +65,4 @@ The `sample/` directory contains symlinks to the canonical OpenTelemetry test da
 - A smaller embedded sample (a few MB) covering the same template variety
 - A download script that fetches the larger sample from a CDN
 
-The walkthrough commands work identically against any properly-shaped `templates.json` + `encoded.log` pair produced by the Edge Optimizer.
+The walkthrough commands work identically against any properly-shaped `templates.json` + `encoded.log` pair produced by the Receiver in [Compact mode](https://doc.log10x.com/apps/receiver/compact/).

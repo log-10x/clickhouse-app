@@ -8,10 +8,10 @@ Companion to [tenx-for-splunk](https://github.com/log-10x/splunk-app) and [tenx-
 
 ## How it works
 
-The [Edge Optimizer](https://doc.log10x.com/apps/edge/optimizer/) extracts repeating template patterns from your logs and ships a compact stream of templates plus encoded events. ClickHouse holds both pieces side by side: a templates dictionary loaded into memory and an encoded events table on disk. A view stitches them back together at query time.
+The [Receiver](https://doc.log10x.com/apps/receiver/) running in [Compact mode](https://doc.log10x.com/apps/receiver/compact/) extracts repeating template patterns from your logs and ships a compact stream of templates plus encoded events. ClickHouse holds both pieces side by side: a templates dictionary loaded into memory and an encoded events table on disk. A view stitches them back together at query time.
 
 ```
-Edge Optimizer  ─┬─►  tenx.templates       (small; ~1 row per pattern)
+Receiver  ─┬─►  tenx.templates       (small; ~1 row per pattern)
                  │            │
                  │            ▼
                  │    tenx.templates_dict  (in-memory hashed lookup)
@@ -45,7 +45,7 @@ docker run -d --name my-clickhouse \
 docker exec -i my-clickhouse clickhouse-client --multiquery \
     < tenx-for-clickhouse/install.sql
 
-# 3. Load your Edge Optimizer output
+# 3. Load your Receiver output
 docker exec my-clickhouse bash -c \
     "clickhouse-client --query 'INSERT INTO tenx.templates (templateHash, template) FORMAT JSONEachRow' < /path/to/templates.json"
 docker exec my-clickhouse bash -c \
@@ -110,7 +110,7 @@ The ClickHouse port is architecturally simpler than the Splunk app because Click
 | Component | Required version | Notes |
 |---|---|---|
 | **ClickHouse** | 24.x or later (tested through 26.x) | Self-hosted, Altinity Cloud, ClickHouse Cloud — all supported with the same install |
-| **[Log10x Edge Optimizer](https://doc.log10x.com/apps/edge/optimizer/)** | Latest stable | Produces the `templates.json` and `encoded.log` inputs |
+| **[Log10x Receiver](https://doc.log10x.com/apps/receiver/) (Compact mode)** | Latest stable | Produces the `templates.json` and `encoded.log` inputs |
 
 ## Compatibility
 
@@ -150,25 +150,25 @@ clickhouse-app/
 - [USER-GUIDE.md](USER-GUIDE.md) — complete install, codec selection, query patterns, troubleshooting
 - [docs/architecture.md](docs/architecture.md) — decode flow, performance characteristics, design choices
 - [demo/](demo/) — 60-second copy-paste walkthrough on the included otel sample
-- [Log10x documentation](https://doc.log10x.com/) — Edge Optimizer setup and product reference
+- [Log10x documentation](https://doc.log10x.com/) — Receiver (Compact mode) setup and product reference
 
 ## License
 
 This repository is licensed under the [Apache License 2.0](LICENSE).
 
-### Important: Log10x Edge Optimizer requires a commercial license
+### Important: Log10x Receiver requires a commercial license
 
-This repository contains the ClickHouse-side decoder for Log10x-encoded events. While the decoder is open source, **using the Log10x Edge Optimizer to encode events requires a commercial license**.
+This repository contains the ClickHouse-side decoder for Log10x-encoded events. While the decoder is open source, **using the Log10x Receiver to encode events requires a commercial license**.
 
 | Component | License |
 |---|---|
 | This repository (ClickHouse decoder) | Apache 2.0 (open source) |
-| Log10x Edge Optimizer | Commercial license required |
+| Log10x Receiver | Commercial license required |
 
 **What this means:**
 - You can freely use, modify, and distribute this decoder
-- The Edge Optimizer that produces encoded events requires a paid subscription
-- A valid Log10x license is required to run the Edge Optimizer in production
+- The Receiver that produces encoded events requires a paid subscription
+- A valid Log10x license is required to run the Receiver in production
 
 **Get started:**
 - [Log10x pricing](https://log10x.com/pricing)

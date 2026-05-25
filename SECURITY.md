@@ -24,7 +24,7 @@ In scope:
 Out of scope:
 
 - Vulnerabilities in ClickHouse itself (report to [ClickHouse Security](https://github.com/ClickHouse/ClickHouse/security))
-- Vulnerabilities in the Log10x Edge Optimizer (report to security@log10x.com)
+- Vulnerabilities in the Log10x Receiver (report to security@log10x.com)
 - Misconfigurations of the customer's ClickHouse deployment
 - Performance regressions that do not have a security impact
 
