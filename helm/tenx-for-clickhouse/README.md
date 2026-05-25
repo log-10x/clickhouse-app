@@ -1,6 +1,6 @@
 # tenx-for-clickhouse Helm chart
 
-Applies the `tenx-for-clickhouse` SQL schema (templates table, dictionary, decoder UDFs, decoded views) to an **existing** ClickHouse service via a one-shot Kubernetes Job.
+Applies the `tenx-for-clickhouse` SQL schema (templates table, dictionary, expansion UDFs, expansion views) to an **existing** ClickHouse service via a one-shot Kubernetes Job.
 
 This chart does **not** install ClickHouse itself. It assumes you already have a working ClickHouse cluster reachable from your Kubernetes cluster (Altinity operator, Bitnami chart, ClickHouse Cloud, or a self-managed deployment).
 

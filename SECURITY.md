@@ -17,7 +17,7 @@ Expect an initial acknowledgement within 3 business days. We will work with you 
 In scope:
 
 - SQL injection or unintended privilege escalation through `tenx_inflate*` functions
-- Data exposure through the decoded view (`tenx.events`, `tenx.events_iso`)
+- Data exposure through the expansion view (`tenx.events`, `tenx.events_iso`)
 - Authentication or authorization bypasses related to the templates dictionary
 - Issues with the `install.sql` schema that could create insecure defaults
 
@@ -30,4 +30,4 @@ Out of scope:
 
 ## Defensive guidance for operators
 
-The templates table is critical infrastructure: encoded events cannot be decoded without it. Treat its availability and integrity at least as carefully as you treat authentication data. See the [User Guide](USER-GUIDE.md#operating-the-templates-dictionary) for backup and replication guidance.
+The templates table is critical infrastructure: compact events cannot be expanded without it. Treat its availability and integrity at least as carefully as you treat authentication data. See the [User Guide](USER-GUIDE.md#operating-the-templates-dictionary) for backup and replication guidance.

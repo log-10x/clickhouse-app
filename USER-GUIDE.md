@@ -1,6 +1,6 @@
 # tenx-for-clickhouse User Guide
 
-This guide covers the full workflow for using tenx-for-clickhouse to search Log10x-encoded data in ClickHouse.
+This guide covers the full workflow for using tenx-for-clickhouse to search Log10x compact data in ClickHouse.
 
 ## Table of Contents
 
@@ -23,7 +23,7 @@ This guide covers the full workflow for using tenx-for-clickhouse to search Log1
 - **ClickHouse 24.x or later** (tested through 26.x; self-hosted, Altinity Cloud, and ClickHouse Cloud all work identically)
 - **[Log10x Receiver](https://doc.log10x.com/apps/receiver/)** producing two files:
   - `templates.json` — one JSON object per line: `{"templateHash":"<hash>","template":"<pattern>"}`
-  - `encoded.log` — one encoded event per line, format: `{...envelope...,"log":"~<hash>[,<v1>,<v2>,...]",...}`
+  - `encoded.log` — one compact event per line, format: `{...envelope...,"log":"~<hash>[,<v1>,<v2>,...]",...}`
 
 That's the entire dependency list. No Rust toolchain, no Python, no binary to install, no platform-specific anything.
 
@@ -73,8 +73,8 @@ For production, use a Kubernetes Secret for credentials. See [helm/tenx-for-clic
 - Database `tenx`
 - Table `tenx.templates` (templates source, with `literals[]` and `slots[]` materialized at INSERT time)
 - Dictionary `tenx.templates_dict` (in-memory hashed lookup, auto-refreshes every 60-120 seconds)
-- Table `tenx.encoded_events` (encoded events with materialized columns for filter pushdown)
-- Six SQL functions composing the decoder
+- Table `tenx.encoded_events` (compact events with materialized columns for filter pushdown)
+- Six SQL functions composing the expansion path
 - Two views: `tenx.events` (preserves original timestamp format) and `tenx.events_iso` (faster, ISO 8601 timestamps)
 
 ### Verify the install
@@ -111,7 +111,7 @@ clickhouse-client --query "SYSTEM RELOAD DICTIONARY tenx.templates_dict"
 
 By default the dictionary auto-refreshes every 60-120 seconds (controlled by `LIFETIME(MIN 60 MAX 120)` in the schema). For high-throughput workloads where templates are continuously added, tighten this to `LIFETIME(MIN 5 MAX 15)`.
 
-### Loading encoded events
+### Loading compact events
 
 ```bash
 clickhouse-client --query "INSERT INTO tenx.encoded_events (raw) FORMAT LineAsString" \
@@ -128,7 +128,7 @@ For continuous ingest from a log shipper (fluent-bit, vector, otel-collector), p
 http://<your-clickhouse>:8123/?query=INSERT%20INTO%20tenx.encoded_events%20(raw)%20FORMAT%20LineAsString
 ```
 
-The body is the raw NDJSON / line-delimited encoded events.
+The body is the raw NDJSON / line-delimited compact events.
 
 ## Querying
 
@@ -145,7 +145,7 @@ LIMIT 10;
 
 ### Filtering for speed
 
-ClickHouse cannot push filters down through the decode functions, so filter on **the cheap pre-materialized columns first** to avoid decoding events you don't need:
+ClickHouse cannot push filters down through the expansion functions, so filter on **the cheap pre-materialized columns first** to avoid expanding events you don't need:
 
 ```sql
 -- FAST: filter pushes down on indexed columns
@@ -154,17 +154,17 @@ WHERE container = 'accounting'
   AND templateHash = '-L3!]kPjVal'
 LIMIT 100;
 
--- SLOW: filter has to decode every event first
+-- SLOW: filter has to expand every event first
 SELECT decoded_log FROM tenx.events
 WHERE decoded_log LIKE '%error%'
 LIMIT 100;
 ```
 
-For full-text search across decoded logs, consider a downstream pipeline that materializes searchable text into a separate index, or use the [Log10x Search MCP](https://github.com/log-10x/log10x-mcp) for pattern-aware queries.
+For full-text search across expanded logs, consider a downstream pipeline that materializes searchable text into a separate index, or use the [Log10x Search MCP](https://github.com/log-10x/log10x-mcp) for pattern-aware queries.
 
 ### Aggregating on cheap columns
 
-Aggregations over the pre-extracted columns are native ClickHouse speed (no decode triggered):
+Aggregations over the pre-extracted columns are native ClickHouse speed (no expansion triggered):
 
 ```sql
 SELECT container, count() AS hits
@@ -183,12 +183,12 @@ LIMIT 20;
 
 ## Choosing between the two views
 
-The install creates two views over the same encoded data. They differ only in timestamp output.
+The install creates two views over the same compact data. They differ only in timestamp output.
 
 | View | Timestamp output | Performance |
 |---|---|---|
 | `tenx.events` | Preserves the original format per template (e.g. `2025-10-02 01:28:24`) | Slower per query (~600 ms fixed cost from the multiIf format dispatch) |
-| `tenx.events_iso` | Normalizes to ISO 8601 (`2025-10-02T01:28:24.000Z`) regardless of template | Fastest (full table decode in ~60 ms on the 200 MB sample) |
+| `tenx.events_iso` | Normalizes to ISO 8601 (`2025-10-02T01:28:24.000Z`) regardless of template | Fastest (full table expansion in ~60 ms on the 200 MB sample) |
 
 Switching is one identifier change in your query. Same columns, same shape.
 
@@ -206,7 +206,7 @@ If you can't decide, start with `tenx.events_iso`. It's faster and most consumer
 
 ## Codec selection
 
-ClickHouse's column compression codec (LZ4 default, ZSTD optional) interacts with template encoding. Both work, but on-disk savings differ.
+ClickHouse's column compression codec (LZ4 default, ZSTD optional) interacts with the templating layer. Both work, but on-disk savings differ.
 
 Measured on a 200 MB OpenTelemetry-demo sample:
 
@@ -236,19 +236,19 @@ Storage savings are one of several cost components. The codec choice does not af
 
 ## Performance characteristics
 
-Measured on the 200 MB sample (197,430 raw events → 137,418 encoded events + 3,473 templates):
+Measured on the 200 MB sample (197,430 raw events → 137,418 compact events + 3,473 templates):
 
 | Workload | `tenx.events` (multiIf) | `tenx.events_iso` (ISO 8601) |
 |---|---|---|
-| Baseline scan, no decode | 0.017 s | 0.017 s |
+| Baseline scan, no expansion | 0.017 s | 0.017 s |
 | Decode 100 rows | 0.620 s | 0.082 s |
 | Decode 10,000 rows | 2.26 s | 0.066 s |
 | Decode full table (137,418 rows) | 6.7 s | **0.060 s** |
-| Filter pushdown then decode (76 rows) | 0.604 s | sub-50 ms |
+| Filter pushdown then expand (76 rows) | 0.604 s | sub-50 ms |
 
 The ISO variant runs at near-native ClickHouse scan speed (~2.3M rows/sec) because it stays inside the vectorized execution engine. The multiIf variant pays a ~600 ms per-query setup cost from format dispatch but preserves original timestamp formats.
 
-For interactive observability queries that filter on cheap columns (`container`, `templateHash`, `namespace`, time range) before decoding, both views complete in sub-second time on typical result sets.
+For interactive observability queries that filter on cheap columns (`container`, `templateHash`, `namespace`, time range) before expanding, both views complete in sub-second time on typical result sets.
 
 ## Operating the templates dictionary
 
@@ -284,7 +284,7 @@ If templates grow into the millions, consider switching the dictionary `LAYOUT` 
 
 ### Backup and recovery
 
-**The templates table is critical infrastructure.** Encoded events cannot be decoded without it. Treat it like an authentication database:
+**The templates table is critical infrastructure.** Compact events cannot be expanded without it. Treat it like an authentication database:
 
 - Back it up at least daily
 - Replicate it across availability zones
