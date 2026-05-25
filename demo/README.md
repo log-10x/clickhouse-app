@@ -1,6 +1,6 @@
 # Demo: 60-second walkthrough
 
-A copy-paste demo that brings up ClickHouse, loads a tiny sample of Log10x-encoded OpenTelemetry data, and runs decoded queries. About one minute end-to-end on a warm Docker.
+A copy-paste demo that brings up ClickHouse, loads a tiny sample of Log10x compact OpenTelemetry data, and runs expansion queries. About one minute end-to-end on a warm Docker.
 
 ## What you need
 
@@ -33,7 +33,7 @@ FROM tenx.events
 WHERE container = 'accounting'
 LIMIT 10;
 
--- Storage comparison: raw vs encoded
+-- Storage comparison: raw vs compact
 SELECT
     table,
     formatReadableSize(sum(bytes_on_disk)) AS on_disk
@@ -53,7 +53,7 @@ The `-v` removes the volume so the next `up` starts from scratch.
 ## What's in the sample
 
 - 200 MB of raw OpenTelemetry-demo logs (`otel-sample-200mb.log`)
-- 130 MB of Log10x-encoded events (`encoded.log`)
+- 130 MB of Log10x compact events (`encoded.log`)
 - 3,473 templates (`templates.json`)
 
 Same dataset used in the performance measurements in [../README.md](../README.md) and [../docs/architecture.md](../docs/architecture.md).
@@ -65,4 +65,4 @@ The `sample/` directory contains symlinks to the canonical OpenTelemetry test da
 - A smaller embedded sample (a few MB) covering the same template variety
 - A download script that fetches the larger sample from a CDN
 
-The walkthrough commands work identically against any properly-shaped `templates.json` + `encoded.log` pair produced by the Edge Optimizer.
+The walkthrough commands work identically against any properly-shaped `templates.json` + `encoded.log` pair produced by the Receiver in [Compact mode](https://doc.log10x.com/apps/receiver/compact/).
