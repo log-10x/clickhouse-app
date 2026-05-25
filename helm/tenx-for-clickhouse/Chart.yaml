@@ -1,0 +1,17 @@
+apiVersion: v2
+name: tenx-for-clickhouse
+description: Apply the tenx-for-clickhouse SQL schema (templates, dictionary, decoder UDFs, decoded views) to an existing ClickHouse service via a one-shot Job. Assumes ClickHouse is already deployed and reachable from the chart's namespace.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - clickhouse
+  - log10x
+  - observability
+  - log-compaction
+home: https://github.com/log-10x/clickhouse-app
+sources:
+  - https://github.com/log-10x/clickhouse-app
+maintainers:
+  - name: Log10x
+    email: support@log10x.com

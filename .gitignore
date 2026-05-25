@@ -1,0 +1,34 @@
+# Build output
+target/
+build/
+dist/
+
+# Rust
+**/Cargo.lock.bak
+*.rlib
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.venv/
+.venv-*/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+.project
+.classpath
+.settings/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local scratch
+*.log
+/tmp/
+/scratch/

@@ -1,0 +1,46 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Cut GitHub Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build release artifact (install.sql + checksums)
+        run: |
+          mkdir -p release-artifacts
+          cp tenx-for-clickhouse/install.sql release-artifacts/
+          cp tenx-for-clickhouse/scripts/health-check.sh release-artifacts/
+          cp LICENSE NOTICE CHANGELOG.md README.md USER-GUIDE.md release-artifacts/
+          cd release-artifacts
+          shasum -a 256 * > SHA256SUMS
+          tar czf ../tenx-for-clickhouse-${GITHUB_REF_NAME}.tar.gz *
+
+      - name: Extract changelog entry for this version
+        id: changelog
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          awk "/^## ${VERSION}/,/^## /" CHANGELOG.md | sed '$d' > release-notes.md || \
+              echo "See CHANGELOG.md for details." > release-notes.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          body_path: release-notes.md
+          files: |
+            tenx-for-clickhouse-*.tar.gz
+            release-artifacts/install.sql
+            release-artifacts/SHA256SUMS
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}

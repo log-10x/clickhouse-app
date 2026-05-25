@@ -1,0 +1,15 @@
+{{/*
+ConfigMap holds install.sql so the Job can mount it as a file. The SQL is
+copied into the chart's files/ directory at packaging time from
+../../tenx-for-clickhouse/install.sql so the chart is self-contained.
+CI verifies the two stay in sync.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "tenx-for-clickhouse.fullname" . }}-install-sql
+  labels:
+    {{- include "tenx-for-clickhouse.labels" . | nindent 4 }}
+data:
+  install.sql: |-
+{{ .Files.Get "files/install.sql" | indent 4 }}

@@ -1,0 +1,39 @@
+# tenx-for-clickhouse Helm values
+
+# Connection to your existing ClickHouse cluster.
+# This chart does NOT install ClickHouse itself; it assumes a working
+# cluster reachable from this namespace (e.g. via the Altinity operator,
+# Bitnami chart, or a managed ClickHouse Cloud endpoint reachable from cluster).
+clickhouse:
+  # HTTP host and port of the ClickHouse server.
+  host: clickhouse.clickhouse.svc.cluster.local
+  port: 8123
+  # Set 'secure: true' for HTTPS / TLS connections (e.g. ClickHouse Cloud).
+  secure: false
+  # Credentials. For production, prefer existingSecret over inline values.
+  user: default
+  password: ""
+  # If set, this Secret must contain keys 'user' and 'password'.
+  existingSecret: ""
+
+# The schema install Job. Runs once at install/upgrade.
+job:
+  # Image must contain clickhouse-client; the upstream server image works.
+  image:
+    repository: clickhouse/clickhouse-server
+    tag: latest
+    pullPolicy: IfNotPresent
+  # Job restartPolicy must be OnFailure or Never per Kubernetes.
+  restartPolicy: OnFailure
+  # Set to true to also run pytest-style smoke checks after the install.
+  runHealthCheck: true
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+# Labels added to all chart-managed resources.
+commonLabels: {}

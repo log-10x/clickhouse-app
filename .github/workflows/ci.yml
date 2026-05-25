@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  helm-lint:
+    name: Helm chart lint + sync check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.17.0
+      - name: Check install.sql is in sync between source and chart
+        run: |
+          if ! diff -q tenx-for-clickhouse/install.sql helm/tenx-for-clickhouse/files/install.sql; then
+            echo "::error::install.sql differs between source and chart."
+            echo "Run helm/tenx-for-clickhouse/files/sync-from-source.sh and commit."
+            exit 1
+          fi
+      - name: helm lint
+        run: helm lint helm/tenx-for-clickhouse
+      - name: helm template (render check)
+        run: helm template my-tenx helm/tenx-for-clickhouse > /tmp/rendered.yaml
+
+  test:
+    name: pytest (ClickHouse ${{ matrix.ch_version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        ch_version:
+          - "24.8"   # LTS
+          - "25.3"   # newer stable
+          - "latest"
+
+    services:
+      clickhouse:
+        image: clickhouse/clickhouse-server:${{ matrix.ch_version }}
+        env:
+          CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+        ports:
+          - 8123:8123
+          - 9000:9000
+        options: >-
+          --ulimit nofile=262144:262144
+          --health-cmd "wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install test dependencies
+        run: pip install -r tests/requirements-test.txt
+
+      - name: Wait for ClickHouse
+        run: |
+          for i in {1..30}; do
+            if curl -s "http://localhost:8123/?query=SELECT%201" | grep -q "^1$"; then
+              echo "ClickHouse is ready"; exit 0
+            fi
+            sleep 2
+          done
+          echo "ClickHouse did not become ready in time" >&2
+          exit 1
+
+      - name: Run pytest
+        env:
+          CH_HOST: localhost
+          CH_PORT: "8123"
+        run: pytest -v --tb=short

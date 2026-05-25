@@ -1,0 +1,80 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "tenx-for-clickhouse.fullname" . }}-install
+  labels:
+    {{- include "tenx-for-clickhouse.labels" . | nindent 4 }}
+  annotations:
+    # Run the Job before all other resources on install + upgrade, and recreate
+    # on every helm upgrade (install.sql is idempotent thanks to CREATE OR REPLACE).
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-delete-policy": before-hook-creation
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        {{- include "tenx-for-clickhouse.labels" . | nindent 8 }}
+    spec:
+      restartPolicy: {{ .Values.job.restartPolicy }}
+      containers:
+        - name: install
+          image: "{{ .Values.job.image.repository }}:{{ .Values.job.image.tag }}"
+          imagePullPolicy: {{ .Values.job.image.pullPolicy }}
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              CH_OPTS="--host {{ .Values.clickhouse.host }} --port {{ .Values.clickhouse.port }} --user $CH_USER"
+              if [ "{{ .Values.clickhouse.secure }}" = "true" ]; then
+                CH_OPTS="$CH_OPTS --secure"
+              fi
+              if [ -n "${CH_PASSWORD:-}" ]; then
+                CH_OPTS="$CH_OPTS --password $CH_PASSWORD"
+              fi
+              echo "[install] Applying install.sql to ClickHouse at {{ .Values.clickhouse.host }}:{{ .Values.clickhouse.port }}"
+              clickhouse-client $CH_OPTS --multiquery < /sql/install.sql
+              echo "[install] Schema applied."
+
+              {{- if .Values.job.runHealthCheck }}
+              echo "[install] Running health check..."
+              FAIL=0
+              for q in \
+                  "SELECT count() FROM system.functions WHERE name IN ('tenx_inflate','tenx_inflate_iso')" \
+                  "SELECT count() > 0 FROM system.dictionaries WHERE name='templates_dict' AND status='LOADED'" \
+                  "EXISTS TABLE tenx.events" \
+                  "EXISTS TABLE tenx.events_iso"; do
+                  R=$(clickhouse-client $CH_OPTS --query "$q")
+                  echo "  $q  ->  $R"
+              done
+              echo "[install] Done."
+              {{- end }}
+          env:
+            - name: CH_USER
+              {{- if .Values.clickhouse.existingSecret }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.clickhouse.existingSecret }}
+                  key: user
+              {{- else }}
+              value: {{ .Values.clickhouse.user | quote }}
+              {{- end }}
+            - name: CH_PASSWORD
+              {{- if .Values.clickhouse.existingSecret }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.clickhouse.existingSecret }}
+                  key: password
+              {{- else }}
+              value: {{ .Values.clickhouse.password | quote }}
+              {{- end }}
+          volumeMounts:
+            - name: install-sql
+              mountPath: /sql
+              readOnly: true
+          resources:
+            {{- toYaml .Values.job.resources | nindent 12 }}
+      volumes:
+        - name: install-sql
+          configMap:
+            name: {{ include "tenx-for-clickhouse.fullname" . }}-install-sql
