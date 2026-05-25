@@ -44,8 +44,8 @@ check "Templates dictionary loaded" "$R" "1"
 R=$("${CH[@]}" --query "EXISTS TABLE tenx.events" 2>/dev/null || echo "0")
 check "View tenx.events exists" "$R" "1"
 
-R=$("${CH[@]}" --query "EXISTS TABLE tenx.events_iso" 2>/dev/null || echo "0")
-check "View tenx.events_iso exists" "$R" "1"
+R=$("${CH[@]}" --query "EXISTS TABLE tenx.events_native" 2>/dev/null || echo "0")
+check "View tenx.events_native exists" "$R" "1"
 
 echo ""; echo "[health-check] $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] || exit 1

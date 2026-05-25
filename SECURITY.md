@@ -17,7 +17,7 @@ Expect an initial acknowledgement within 3 business days. We will work with you 
 In scope:
 
 - SQL injection or unintended privilege escalation through `tenx_inflate*` functions
-- Data exposure through the expansion view (`tenx.events`, `tenx.events_iso`)
+- Data exposure through the expansion view (`tenx.events`, `tenx.events_native`)
 - Authentication or authorization bypasses related to the templates dictionary
 - Issues with the `install.sql` schema that could create insecure defaults
 

@@ -47,7 +47,7 @@ def test_iso_view_renders_iso_timestamps(ch, sample_loaded, ch_database):
     rows = ch.query(
         f"""
         SELECT decoded_log
-        FROM {ch_database}.events_iso
+        FROM {ch_database}.events_native
         WHERE templateHash IN (
             SELECT templateHash FROM {ch_database}.templates
             WHERE hasAny(slots, ['$(yyyy-MM-dd HH:mm:ss)',

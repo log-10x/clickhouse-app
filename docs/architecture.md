@@ -44,7 +44,7 @@ The tenx-for-clickhouse port replicates the same architectural pattern as [tenx-
                                               ▼
                                      ┌─────────────────────────┐
                                      │ tenx.events     (VIEW)  │
-                                     │ tenx.events_iso (VIEW)  │
+                                     │ tenx.events_native (VIEW)  │
                                      │ tenx_inflate(...)       │
                                      └─────────────────────────┘
                                               ▲
@@ -107,7 +107,7 @@ Each branch passes a constant. ClickHouse compiles each call independently. **Pr
 formatDateTimeInJodaSyntax(ts, 'yyyy-MM-dd''T''HH:mm:ss.SSS''Z''', 'UTC')
 ```
 
-One constant, fully vectorized. **All timestamps render as ISO 8601** regardless of original template. No per-row dispatch. Exposed as `tenx.events_iso`.
+One constant, fully vectorized. **All timestamps render as ISO 8601** regardless of original template. No per-row dispatch. Exposed as `tenx.events_native`.
 
 Both views ship by default; the customer queries whichever matches their downstream consumer's expectations.
 
@@ -138,7 +138,7 @@ Identical schema, same data, four compression configurations:
 
 ### Decode throughput
 
-| Workload | `tenx.events` (multiIf) | `tenx.events_iso` (ISO 8601) |
+| Workload | `tenx.events` (multiIf) | `tenx.events_native` (ISO 8601) |
 |---|---|---|
 | Decode 100 rows | 620 ms | 82 ms |
 | Decode 10,000 rows | 2.26 s | 66 ms |

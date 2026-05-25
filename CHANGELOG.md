@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.2.0 (Unreleased)
+
+Post-Grok-debate architecture polish + Grafana app plugin scaffold.
+
+**Decoder polish**:
+- `tenx.events` is now the **default view**: ISO 8601 timestamps, native CH scan speed (~60 ms full-table expansion on 137K rows). The previous default (`tenx.events`, multiIf format dispatch) was renamed to **`tenx.events_native`** and documented as the compatibility view for consumers that need original timestamp format preservation.
+- Dictionary hardening: `install.sql` ships with a commented-out `ReplicatedMergeTree` + `ON CLUSTER` variant for multi-replica production deployments, plus a documented status-alarm query (`SELECT count() FROM system.dictionaries WHERE status != 'LOADED'`) and a backup pattern.
+- Repositioned README headline to codec-independent claim: "Reduces ClickHouse ingest CPU 25-30% and edge-to-cluster bandwidth 35%, with codec-dependent storage savings on top." Drops the inherited "over 50%" language that only applied to per-ingest-GB billing models (Splunk/Datadog).
+
+**Grafana app plugin** (new at [grafana/tenx-for-clickhouse-app/](grafana/tenx-for-clickhouse-app/)):
+- **Pattern Explorer page**: top-N templates by estimated cost in the selected time range; one-click "copy templateHash filter" for paste-into-dashboard.
+- **Template cost attribution dashboard** (bundled): templates known, compact events in range, distinct templates, top-25 templates by bytes, event volume by container, top-5 templates over time.
+- Sits on top of an existing ClickHouse data source (Grafana official or Altinity). Does not install a data source.
+- Apache 2.0. Same license as the decoder.
+
 ## 0.1.0 (Unreleased)
 
 Initial private release.
@@ -7,7 +22,7 @@ Initial private release.
 - **Pure SQL install.** No executable UDF, no binary, no platform-specific install path. Works identically on self-hosted ClickHouse, Altinity Cloud, and ClickHouse Cloud.
 - **Two views over the same compact data**:
   - `tenx.events` — preserves original timestamp format per template (multiIf dispatch over 17 observed format patterns)
-  - `tenx.events_iso` — normalizes all timestamps to ISO 8601 with millisecond precision; fastest path, equals native ClickHouse scan speed
+  - `tenx.events_native` — normalizes all timestamps to ISO 8601 with millisecond precision; fastest path, equals native ClickHouse scan speed
 - **Template grammar support**: `$` value slots, `$(<java-fmt>)` timestamp slots, `$(epoch)` raw slots
 - **Java SimpleDateFormat patterns** handled natively via `formatDateTimeInJodaSyntax`
 - **Dictionary-based template lookup** with auto-refresh (`LIFETIME`)

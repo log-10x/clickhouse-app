@@ -75,7 +75,7 @@ For production, use a Kubernetes Secret for credentials. See [helm/tenx-for-clic
 - Dictionary `tenx.templates_dict` (in-memory hashed lookup, auto-refreshes every 60-120 seconds)
 - Table `tenx.encoded_events` (compact events with materialized columns for filter pushdown)
 - Six SQL functions composing the expansion path
-- Two views: `tenx.events` (preserves original timestamp format) and `tenx.events_iso` (faster, ISO 8601 timestamps)
+- Two views: `tenx.events` (preserves original timestamp format) and `tenx.events_native` (faster, ISO 8601 timestamps)
 
 ### Verify the install
 
@@ -188,11 +188,11 @@ The install creates two views over the same compact data. They differ only in ti
 | View | Timestamp output | Performance |
 |---|---|---|
 | `tenx.events` | Preserves the original format per template (e.g. `2025-10-02 01:28:24`) | Slower per query (~600 ms fixed cost from the multiIf format dispatch) |
-| `tenx.events_iso` | Normalizes to ISO 8601 (`2025-10-02T01:28:24.000Z`) regardless of template | Fastest (full table expansion in ~60 ms on the 200 MB sample) |
+| `tenx.events_native` | Normalizes to ISO 8601 (`2025-10-02T01:28:24.000Z`) regardless of template | Fastest (full table expansion in ~60 ms on the 200 MB sample) |
 
 Switching is one identifier change in your query. Same columns, same shape.
 
-**Use `tenx.events_iso` when:**
+**Use `tenx.events_native` when:**
 - Your downstream tooling parses ISO 8601 (most Grafana time pickers, most BI tools, most application code)
 - Query latency matters
 - You don't have regex matchers that depend on a specific timestamp format
@@ -202,7 +202,7 @@ Switching is one identifier change in your query. Same columns, same shape.
 - Compliance requires that log format be preserved end-to-end
 - You can absorb the ~600 ms per-query setup cost
 
-If you can't decide, start with `tenx.events_iso`. It's faster and most consumers prefer ISO.
+If you can't decide, start with `tenx.events_native`. It's faster and most consumers prefer ISO.
 
 ## Codec selection
 
@@ -238,7 +238,7 @@ Storage savings are one of several cost components. The codec choice does not af
 
 Measured on the 200 MB sample (197,430 raw events → 137,418 compact events + 3,473 templates):
 
-| Workload | `tenx.events` (multiIf) | `tenx.events_iso` (ISO 8601) |
+| Workload | `tenx.events` (multiIf) | `tenx.events_native` (ISO 8601) |
 |---|---|---|
 | Baseline scan, no expansion | 0.017 s | 0.017 s |
 | Decode 100 rows | 0.620 s | 0.082 s |
@@ -353,11 +353,11 @@ If the template isn't in the source table, it was never produced by the Receiver
 
 ### Query latency on `tenx.events` is ~600ms per query
 
-You're using the format-preserving view for queries where the multiIf setup cost dominates. Switch to `tenx.events_iso` if ISO 8601 timestamps are acceptable for that query. Same data, same shape, ~10x faster on small queries.
+You're using the format-preserving view for queries where the multiIf setup cost dominates. Switch to `tenx.events_native` if ISO 8601 timestamps are acceptable for that query. Same data, same shape, ~10x faster on small queries.
 
-### Decoded timestamps look wrong on `tenx.events_iso`
+### Decoded timestamps look wrong on `tenx.events_native`
 
-`tenx.events_iso` renders all timestamps as ISO 8601 with millisecond precision in UTC, regardless of the original template's format. This is by design. If you need the original format preserved, use `tenx.events`.
+`tenx.events_native` renders all timestamps as ISO 8601 with millisecond precision in UTC, regardless of the original template's format. This is by design. If you need the original format preserved, use `tenx.events`.
 
 ### Dictionary not updating after template inserts
 
