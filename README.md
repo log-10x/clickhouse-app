@@ -2,9 +2,9 @@
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-Search and visualize [compact](https://doc.log10x.com/run/transform/#compact) events in ClickHouse with zero data loss. This Apache-licensed component expands compact events transparently at query time via a `tenx.events` view, so existing Grafana dashboards, alerts, and SQL queries continue to work against the compact data without modification.
+Lossless [compact](https://doc.log10x.com/run/transform/#compact) log decoding for ClickHouse. Reduces ClickHouse ingest CPU 25-30% and edge-to-cluster bandwidth 35%, with codec-dependent storage savings on top. Drops in as a single SQL file. Existing Grafana dashboards, alerts, and SQL queries keep working against the compact data without modification, via a `tenx.events` view.
 
-Companion to [tenx-for-splunk](https://github.com/log-10x/splunk-app) and [tenx-for-elasticsearch](https://github.com/log-10x/elasticsearch-plugin).
+Companion to [tenx-for-splunk](https://github.com/log-10x/splunk-app) and [tenx-for-elasticsearch](https://github.com/log-10x/elasticsearch-plugin). Apache 2.0.
 
 ## How it works
 
@@ -64,16 +64,16 @@ For ClickHouse Cloud, replace `docker exec my-clickhouse clickhouse-client` with
 
 See the full [USER-GUIDE.md](USER-GUIDE.md) for production-grade install, codec tuning, query patterns, and troubleshooting.
 
-## Two views, your choice
+## Two views, default is fast
 
-The install creates two views over the same compact data. Pick the one your downstream consumers expect.
+The install creates two views over the same compact data.
 
-| View | Timestamp output | Speed |
-|---|---|---|
-| `tenx.events` | Preserves the original format per template (e.g. `2025-10-02 01:28:24`) | Slower per query (~600 ms fixed cost from format dispatch) |
-| `tenx.events_iso` | Normalises all timestamps to ISO 8601 (`2025-10-02T01:28:24.000Z`) | Fastest (full table expansion in ~60 ms on the 200 MB sample) |
+| View | Timestamp output | Speed | When to use |
+|---|---|---|---|
+| `tenx.events` | ISO 8601 (`2025-10-02T01:28:24.000Z`) | Native CH scan (~60 ms full-table) | **Default.** New dashboards, BI tools, anything that accepts ISO 8601 |
+| `tenx.events_native` | Preserves the original format per template (e.g. `2025-10-02 01:28:24`) | ~600 ms fixed cost from multiIf dispatch | Regex matchers that depend on a specific format, compliance log-format preservation |
 
-Both views expose identical column shape: `container`, `namespace`, `pod`, `templateHash`, `encoded_log`, `decoded_log`. Switching is a one-character query change.
+Both views expose identical column shape: `container`, `namespace`, `pod`, `templateHash`, `encoded_log`, `decoded_log`. Switching is a one-identifier query change.
 
 ## What you get on disk
 
@@ -139,6 +139,7 @@ clickhouse-app/
 │   └── scripts/
 │       └── health-check.sh           End-to-end verification (SQL-only)
 ├── helm/tenx-for-clickhouse/         Kubernetes Job-pattern install chart
+├── grafana/tenx-for-clickhouse-app/  Grafana app plugin (pattern explorer + dashboards)
 ├── demo/                             Copy-paste 60-second walkthrough
 ├── docs/architecture.md              Decode flow, performance notes, design
 ├── tests/                            pytest suite (unit + integration)

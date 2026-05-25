@@ -1,0 +1,153 @@
+{
+  "annotations": { "list": [] },
+  "description": "Cost attribution by template hash. Shows which compact patterns consume the most ingest CPU and bytes, and which patterns are growing fastest. Requires the tenx-for-clickhouse schema (https://github.com/log-10x/clickhouse-app) and a ClickHouse data source configured as the default.",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [
+    {
+      "title": "tenx-for-clickhouse repo",
+      "type": "link",
+      "url": "https://github.com/log-10x/clickhouse-app",
+      "targetBlank": true
+    }
+  ],
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Templates known",
+      "id": 1,
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value" },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT count() AS value FROM ${database}.templates",
+          "format": "table",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "${datasource}" }
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Compact events in range",
+      "id": 2,
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value" },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT count() AS value FROM ${database}.encoded_events WHERE $__timeFilter(JSONExtractInt(raw, 'time'))",
+          "format": "table",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "${datasource}" }
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Estimated bytes (compact, in range)",
+      "id": 3,
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "fieldConfig": { "defaults": { "unit": "bytes" } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value" },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT sum(length(raw)) AS value FROM ${database}.encoded_events WHERE $__timeFilter(JSONExtractInt(raw, 'time'))",
+          "format": "table",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "${datasource}" }
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Distinct templates in range",
+      "id": 4,
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "value" },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT uniq(templateHash) AS value FROM ${database}.encoded_events WHERE $__timeFilter(JSONExtractInt(raw, 'time')) AND templateHash != ''",
+          "format": "table",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "${datasource}" }
+        }
+      ]
+    },
+    {
+      "type": "table",
+      "title": "Top 25 templates by estimated cost",
+      "id": 5,
+      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 4 },
+      "options": { "showHeader": true },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT e.templateHash AS templateHash, coalesce(t.template, '(template missing)') AS template, count() AS events, sum(length(e.raw)) AS bytes, any(e.container) AS sampleContainer FROM ${database}.encoded_events AS e LEFT JOIN ${database}.templates AS t USING (templateHash) WHERE $__timeFilter(JSONExtractInt(e.raw, 'time')) AND e.templateHash != '' GROUP BY e.templateHash, t.template ORDER BY bytes DESC LIMIT 25",
+          "format": "table",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "${datasource}" }
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Event volume by container (compact)",
+      "id": 6,
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "SELECT $__timeInterval(toDateTime(JSONExtractInt(raw, 'time'))) AS t, container, count() AS events FROM ${database}.encoded_events WHERE $__timeFilter(JSONExtractInt(raw, 'time')) AND container != '' GROUP BY t, container ORDER BY t",
+          "format": "time_series",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "${datasource}" }
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Top 5 templates over time",
+      "id": 7,
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "targets": [
+        {
+          "refId": "A",
+          "rawSql": "WITH top AS (SELECT templateHash FROM ${database}.encoded_events WHERE $__timeFilter(JSONExtractInt(raw, 'time')) AND templateHash != '' GROUP BY templateHash ORDER BY count() DESC LIMIT 5) SELECT $__timeInterval(toDateTime(JSONExtractInt(e.raw, 'time'))) AS t, e.templateHash AS templateHash, count() AS events FROM ${database}.encoded_events AS e INNER JOIN top USING (templateHash) WHERE $__timeFilter(JSONExtractInt(e.raw, 'time')) GROUP BY t, e.templateHash ORDER BY t",
+          "format": "time_series",
+          "datasource": { "type": "grafana-clickhouse-datasource", "uid": "${datasource}" }
+        }
+      ]
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["log10x", "10x", "clickhouse", "patterns"],
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "query": "grafana-clickhouse-datasource",
+        "current": {}
+      },
+      {
+        "name": "database",
+        "type": "constant",
+        "current": { "text": "tenx", "value": "tenx" },
+        "options": [{ "text": "tenx", "value": "tenx", "selected": true }],
+        "query": "tenx",
+        "hide": 0,
+        "label": "Database"
+      }
+    ]
+  },
+  "time": { "from": "now-6h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "10x — Template cost attribution",
+  "uid": "log10x-tenx-template-cost",
+  "version": 1,
+  "weekStart": ""
+}

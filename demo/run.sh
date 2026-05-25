@@ -42,10 +42,10 @@ LIMIT 3
 FORMAT TabSeparatedRaw"
 
 echo ""
-echo "=== Same events via tenx.events_iso (ISO 8601 timestamps) ==="
+echo "=== Same events via tenx.events_native (ISO 8601 timestamps) ==="
 docker exec "$CTR" clickhouse-client --query "
 SELECT decoded_log
-FROM tenx.events_iso
+FROM tenx.events_native
 WHERE templateHash != ''
 ORDER BY rand()
 LIMIT 3

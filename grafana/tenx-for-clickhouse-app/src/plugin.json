@@ -1,0 +1,48 @@
+{
+  "type": "app",
+  "name": "10x for ClickHouse",
+  "id": "log10x-tenx-app",
+  "info": {
+    "description": "Pattern explorer and dashboards for ClickHouse logs compacted by Log10x. Sits on top of an existing ClickHouse data source.",
+    "author": {
+      "name": "Log10x, Inc.",
+      "url": "https://log10x.com"
+    },
+    "keywords": ["clickhouse", "log10x", "10x", "logs", "observability", "patterns", "compact"],
+    "logos": {
+      "small": "img/logo.svg",
+      "large": "img/logo.svg"
+    },
+    "screenshots": [],
+    "version": "0.1.0",
+    "updated": "2026-05-25"
+  },
+  "includes": [
+    {
+      "type": "page",
+      "name": "Pattern Explorer",
+      "path": "/a/log10x-tenx-app/explorer",
+      "role": "Viewer",
+      "addToNav": true,
+      "defaultNav": true
+    },
+    {
+      "type": "page",
+      "name": "Configuration",
+      "icon": "cog",
+      "path": "/plugins/log10x-tenx-app",
+      "role": "Admin",
+      "addToNav": true,
+      "defaultNav": false
+    },
+    {
+      "type": "dashboard",
+      "name": "Template cost attribution",
+      "path": "dashboards/template-cost.json"
+    }
+  ],
+  "dependencies": {
+    "grafanaDependency": ">=10.4.0",
+    "plugins": []
+  }
+}
