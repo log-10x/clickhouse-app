@@ -11,16 +11,16 @@ Companion to [tenx-for-splunk](https://github.com/log-10x/splunk-app) and [tenx-
 The [Receiver](https://doc.log10x.com/apps/receiver/) running in [Compact mode](https://doc.log10x.com/apps/receiver/compact/) extracts repeating template patterns from your logs and ships a compact stream of templates plus encoded events. ClickHouse holds both pieces side by side: a templates dictionary loaded into memory and an encoded events table on disk. A view stitches them back together at query time.
 
 ```
-Receiver  ─┬─►  tenx.templates       (small; ~1 row per pattern)
-                 │            │
-                 │            ▼
-                 │    tenx.templates_dict  (in-memory hashed lookup)
-                 │            │
-                 └─►  tenx.encoded_events  (bulk; encoded payloads)
-                              │
-                              ▼
-                       tenx.events          ◄── SELECT * FROM tenx.events
-                       (view; decodes per row)       returns full original text
+Receiver  ─┬─►  tenx.templates        (small; ~1 row per pattern)
+           │            │
+           │            ▼
+           │     tenx.templates_dict   (in-memory hashed lookup)
+           │            │
+           └─►  tenx.encoded_events    (bulk; encoded payloads)
+                        │
+                        ▼
+                 tenx.events           ◄── SELECT * FROM tenx.events
+                 (view; decodes per row)    returns full original text
 ```
 
 ## One product, one install
