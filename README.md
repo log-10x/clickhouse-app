@@ -89,7 +89,7 @@ Storage savings vary with codec choice because ClickHouse's own compression over
 ## What stays unchanged
 
 - **Lossless expansion**: every compact event expands back to its original text. Compliance and forensic workflows are preserved.
-- **Transparent SELECT**: `SELECT FROM tenx.events` returns full original text. Existing Grafana dashboards, alerts, BI queries work without modification.
+- **Existing dashboards keep working**: the [transparent install path](USER-GUIDE.md#transparent-install-keep-existing-dashboards) creates a view at your existing logs-table name. Dashboards, alerts, and BI queries continue to query the same table and get back expanded text — no rewrites. Works on self-hosted CH, Altinity, ClickHouse Cloud, and **Groundcover BYOC** (where you have admin access to the underlying CH cluster).
 - **No new infrastructure**: pure SQL. No control plane, no separate template service, no binary to ship, no platform-specific install path.
 - **Identical on Cloud and self-hosted**: same install file, same query surface, same behavior.
 
@@ -135,9 +135,11 @@ clickhouse-app/
 ├── USER-GUIDE.md                     Full install + codec + troubleshooting
 ├── pytest.ini                        Test runner config
 ├── tenx-for-clickhouse/
-│   ├── install.sql                   The whole product
+│   ├── install.sql                          Standard install (tenx.* namespace)
+│   ├── transparent-install.template.sql     Brownfield install: keep existing table name + dashboards
 │   └── scripts/
-│       └── health-check.sh           End-to-end verification (SQL-only)
+│       ├── health-check.sh                  End-to-end verification (SQL-only)
+│       └── generate-transparent-install.sh  Generates brownfield install from your schema
 ├── helm/tenx-for-clickhouse/         Kubernetes Job-pattern install chart
 ├── grafana/tenx-for-clickhouse-app/  Grafana app plugin (pattern explorer + dashboards)
 ├── demo/                             Copy-paste 60-second walkthrough

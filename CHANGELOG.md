@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.0 (Unreleased)
+
+**Transparent install** — keep existing dashboards working without rewrites.
+
+- New: `tenx-for-clickhouse/transparent-install.template.sql` — a SQL template that renames the existing logs table, creates a compact-events table at a new name, and exposes a VIEW at the original name that decodes compact events on the fly and UNIONs in historical legacy rows. Existing dashboards, alerts, and BI queries continue to query the original table name and get expanded text back.
+- New: `tenx-for-clickhouse/scripts/generate-transparent-install.sh` — introspects an existing table's schema via `DESCRIBE TABLE` and generates a pre-filled transparent-install SQL script with the correct column list. Supports an optional `--template-hash-column` for pipelines that already extract the hash, or falls back to inline extraction.
+- New USER-GUIDE section: **Transparent install: keep existing dashboards** — documents the brownfield install path, the performance trade-offs (indexed queries stay fast; full-text LIKE scans get slower), rollback procedure, and Groundcover-specific deployment notes.
+- README updated to point at the transparent install path under "What stays unchanged."
+
+The transparent install is opt-in. The standard install (default `tenx.*` namespace) remains the recommended path for greenfield deployments.
+
 ## 0.2.0 (Unreleased)
 
 Post-Grok-debate architecture polish + Grafana app plugin scaffold.

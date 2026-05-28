@@ -29,6 +29,17 @@ That's the entire dependency list. No Rust toolchain, no Python, no binary to in
 
 ## Installation
 
+Two install paths. Pick whichever matches your situation.
+
+| Path | When to use | What happens to existing dashboards/alerts |
+|---|---|---|
+| **Standard install** (this section) | Greenfield: no existing dashboards, or you don't mind pointing them at `tenx.events` | Build new dashboards against `tenx.events`. Existing dashboards (if any) keep querying their old table — they get raw text, not compact decode. |
+| **[Transparent install](#transparent-install-keep-existing-dashboards)** | Brownfield: existing CH dashboards/alerts/BI queries point at a logs table, and switching them to a new name is not acceptable | Existing dashboards continue to query the same table name and get expanded text back. One additional CREATE VIEW step covers the seamless aliasing. |
+
+Both paths require the standard install (the `tenx.*` namespace) as a prerequisite. The transparent install just adds a view alias on top.
+
+### Standard install
+
 One file, one command, one install path for every ClickHouse deployment.
 
 ### Self-hosted (Docker)
@@ -91,6 +102,133 @@ CLICKHOUSE_CLIENT="clickhouse-client --host my.cloud --secure --user me --passwo
 ```
 
 You should see four `PASS` lines. If any fail, see [Troubleshooting](#troubleshooting).
+
+## Transparent install: keep existing dashboards
+
+Use this when an existing ClickHouse deployment already has dashboards, alerts, BI queries, or applications pointing at a specific logs table, and you want all of them to keep working unchanged after switching ingestion to compact events. Same query, same table name, expanded text in the response.
+
+This works on any ClickHouse deployment where you have admin access — self-hosted, ClickHouse Cloud, Altinity, **or Groundcover's BYOC ClickHouse** (since the cluster runs in your own cloud account, you can apply schema changes directly).
+
+### How it works
+
+ClickHouse views are first-class. We rename the existing logs table out of the way, create a new table that will receive compact events, and create a **view** at the original table name that decodes compact events on the fly and unions in the historical legacy rows. Every existing consumer continues to query the same name and gets back the original log text.
+
+```
+   Before                                After
+   ──────                                ─────
+                                          ┌──────────────────────┐
+                                          │ my_logs.events       │  ◄── dashboards still query
+   ┌────────────────────┐                 │       (VIEW)         │      this name, unchanged
+   │ my_logs.events     │       ┌────────►│                      │
+   │      (TABLE)       │       │         │  UNION ALL           │
+   │                    │       │         │   decoded compact +  │
+   │ raw text logs      │       │         │   legacy raw rows    │
+   │                    │       │         └──────────────────────┘
+   └────────────────────┘       │                  ▲          ▲
+        ▲                       │                  │          │
+        │                       │                  │          │
+   ingest pipeline      RENAME  │      ┌───────────┘          │
+   writes raw text         ┌────┴─────────────────┐  ┌────────┴──────────┐
+                           │ my_logs.events_      │  │ my_logs.events_   │
+                           │   compact            │  │   legacy          │
+                           │   (TABLE)            │  │   (TABLE, renamed)│
+                           │                      │  │                   │
+                           │ ingest pipeline      │  │ old raw rows      │
+                           │ writes compact       │  │ (historical)      │
+                           └──────────────────────┘  └───────────────────┘
+```
+
+### Generate the SQL automatically
+
+The included generator script introspects your existing table's schema and emits the rename + view-creation SQL with the right column list.
+
+```bash
+# Local CH via docker exec
+CH_CLIENT='docker exec my-ch clickhouse-client' \
+    ./tenx-for-clickhouse/scripts/generate-transparent-install.sh \
+        --table my_logs.events \
+        --encoded-column message \
+        --output transparent-install.sql
+
+# CH Cloud
+CH_CLIENT='clickhouse-client --host my.cloud --port 9440 --secure --user me --password ...' \
+    ./tenx-for-clickhouse/scripts/generate-transparent-install.sh \
+        --table my_logs.events \
+        --encoded-column message \
+        --output transparent-install.sql
+
+# Groundcover BYOC ClickHouse — same as CH Cloud, pointing at the endpoint
+# Groundcover spun up in your cloud account.
+CH_CLIENT='clickhouse-client --host <groundcover-ch-host> --secure ...' \
+    ./tenx-for-clickhouse/scripts/generate-transparent-install.sh \
+        --table groundcover.events \
+        --encoded-column body \
+        --output transparent-install.sql
+```
+
+Required arguments:
+- `--table <database>.<table>` — the existing logs table that dashboards currently query
+- `--encoded-column <name>` — the column that will hold the compact-form payload (often `message`, `log`, or `body`)
+
+Optional arguments:
+- `--template-hash-column <name>` — if your ingest pipeline already emits the template hash as a separate column, name it here. If not, the script falls back to an inline extraction from `--encoded-column` (no separate hash column needed).
+- `--ch-client "..."` — the full clickhouse-client invocation (defaults to `clickhouse-client`, or to `$CH_CLIENT` if set)
+- `--output <path>` — write to a file instead of stdout
+
+The script connects to ClickHouse to `DESCRIBE TABLE`, then generates a SQL file with the correct column list pre-filled. Review the output before applying.
+
+### Apply the SQL
+
+The generated file is the entire transparent-install — three statements: `RENAME`, `CREATE TABLE`, `CREATE VIEW`.
+
+```bash
+# Pause ingestion to the existing table first (the rename takes a few seconds
+# and ingestion will fail during the window). Then:
+clickhouse-client --multiquery < transparent-install.sql
+
+# Update your ingest pipeline to write compact events to
+#     <database>.<table>_compact
+# instead of the original table name. Resume ingestion.
+```
+
+Dashboards, alerts, BI queries — all unchanged — now hit the view and get expanded text back.
+
+### Manual template
+
+If you'd rather customize the SQL by hand (for example, because the table has complex column types or you want a different ORDER BY), use the template at `tenx-for-clickhouse/transparent-install.template.sql`. Replace the placeholders and apply.
+
+### Performance trade-offs you are accepting
+
+The view is not magic — it expands events at query time via the `tenx_inflate_iso` function. Different query patterns pay different costs:
+
+| Query pattern | Before (raw text table) | After (view over compact) |
+|---|---|---|
+| `WHERE container = 'foo'` (indexed) | Fast | **Fast** — no inflate triggered |
+| `WHERE templateHash = 'xyz'` | N/A | **Sub-50ms** — indexed |
+| `GROUP BY container, count()` | Fast | **Fast** — no inflate triggered |
+| Time-series aggregations on indexed columns | Fast | **Fast** — no inflate triggered |
+| `WHERE message LIKE '%error%'` (full-text scan) | Full-table scan, baseline | **Slower** — pays inflate cost per scanned row |
+| Regex on `message` | Baseline | **Slower** — same reason |
+
+For the slow case, the migration path is to add `WHERE templateHash IN (...)` clauses to scope the scan before the LIKE/regex applies. This is an optimization, not a requirement: the queries continue to work; they just take seconds instead of subseconds on big tables. You can migrate them gradually as you discover which ones are hot.
+
+### Rollback
+
+If something goes wrong:
+
+```sql
+DROP VIEW   <database>.<table>;
+RENAME TABLE <database>.<table>_legacy TO <database>.<table>;
+DROP TABLE  <database>.<table>_compact;
+```
+
+Then reconfigure the ingest pipeline to point back at the original table name. Standard install (`tenx.*` namespace) is unaffected by the rollback and can stay in place.
+
+### Groundcover-specific notes
+
+In a Groundcover deployment, the CH cluster runs in your cloud account. You have admin access to it. The transparent install script works identically — point it at the Groundcover-managed CH endpoint, target whichever table Groundcover's UI queries for log views, and the install runs to completion.
+
+One coordination point is upstream: someone needs to ensure compact events flow into the new `*_compact` table. In greenfield ClickHouse you reconfigure your forwarder. In Groundcover, the Receiver needs to be inserted into Groundcover's ingest path, which currently requires coordinating with Groundcover (their pipeline is closed-source). Until that's resolved, you can run the transparent install pattern in parallel for a separate logs table you control directly while leaving Groundcover's UI untouched.
 
 ## Loading data
 
