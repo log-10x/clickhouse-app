@@ -2,7 +2,7 @@
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-Lossless [compact](https://doc.log10x.com/run/transform/#compact) log decoding for ClickHouse. Reduces ClickHouse ingest CPU 25-30% and edge-to-cluster bandwidth 35%, with codec-dependent storage savings on top. Drops in as a single SQL file. Existing Grafana dashboards, alerts, and SQL queries keep working against the compact data without modification, via a `tenx.events` view.
+Lossless [compact](https://doc.log10x.com/run/transform/#compact) log decoding for ClickHouse. Reduces ClickHouse ingest CPU 25-30% and edge-to-cluster bandwidth 35%, with roughly 70-78% on-disk reduction on a typical structured-log workload under ZSTD column compression (codec-dependent; LZ4 narrower). Drops in as a single SQL file. Existing Grafana dashboards, alerts, and SQL queries keep working against the compact data without modification, via a `tenx.events` view.
 
 Companion to [tenx-for-splunk](https://github.com/log-10x/splunk-app) and [tenx-for-elasticsearch](https://github.com/log-10x/elasticsearch-plugin). Apache 2.0.
 
@@ -85,6 +85,16 @@ Measured on a 200 MB OpenTelemetry-demo log sample (197,430 events compacted int
 | ZSTD (level 3) | 3.37 MiB | 2.45 MiB | 27% |
 
 Storage savings vary with codec choice because ClickHouse's own compression overlaps with the templating layer. See [docs/architecture.md](docs/architecture.md) for the full measurement methodology.
+
+INNER reduction against raw bodies also varies with log body size. Measured under ZSTD column compression on force-merged single-segment indices:
+
+| Log body size | INNER vs raw (ZSTD) |
+|---|---|
+| Tiny (~60 B body) | ~7% |
+| Typical (~225 B body) | ~74% |
+| Large (~1.1 KB body) | ~79% |
+
+The 200MB-sample numbers and the body-size numbers measure different baselines (the 200MB sample groups across many templates; the body-size table is per-event INNER-vs-raw on force-merged single-segment indices). Real customer pre-encoding text can differ by about 10 percentage points on the absolute figures, since the measurement used synthesized bodies at roughly 2.5x inner-body length. The plugin requires INNER encode mode; OUTER encode is not supported on ClickHouse because the materialized envelope columns and primary key depend on parseable JSON. See [Receiver-side configuration](USER-GUIDE.md#receiver-side-configuration) in the user guide.
 
 ## What stays unchanged
 

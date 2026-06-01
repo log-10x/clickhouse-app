@@ -5,27 +5,56 @@ This guide covers the full workflow for using tenx-for-clickhouse to search Log1
 ## Table of Contents
 
 1. [Prerequisites](#prerequisites)
-2. [Installation](#installation)
-3. [Loading data](#loading-data)
-4. [Querying](#querying)
-5. [Choosing between the two views](#choosing-between-the-two-views)
-6. [Codec selection](#codec-selection)
-7. [Performance characteristics](#performance-characteristics)
-8. [Operating the templates dictionary](#operating-the-templates-dictionary)
-9. [Configuration reference](#configuration-reference)
-10. [Troubleshooting](#troubleshooting)
-11. [Upgrading](#upgrading)
+2. [Receiver-side configuration](#receiver-side-configuration)
+3. [Installation](#installation)
+4. [Loading data](#loading-data)
+5. [Querying](#querying)
+6. [Choosing between the two views](#choosing-between-the-two-views)
+7. [Codec selection](#codec-selection)
+8. [Performance characteristics](#performance-characteristics)
+9. [Operating the templates dictionary](#operating-the-templates-dictionary)
+10. [Configuration reference](#configuration-reference)
+11. [Troubleshooting](#troubleshooting)
+12. [Upgrading](#upgrading)
 
 ---
 
 ## Prerequisites
 
 - **ClickHouse 24.x or later** (tested through 26.x; self-hosted, Altinity Cloud, and ClickHouse Cloud all work identically)
-- **[Log10x Receiver](https://doc.log10x.com/apps/receiver/)** producing two files:
+- **[Log10x Receiver](https://doc.log10x.com/apps/receiver/)** configured for INNER encode (see next section), producing two files:
   - `templates.json` — one JSON object per line: `{"templateHash":"<hash>","template":"<pattern>"}`
   - `encoded.log` — one compact event per line, format: `{...envelope...,"log":"~<hash>[,<v1>,<v2>,...]",...}`
 
 That's the entire dependency list. No Rust toolchain, no Python, no binary to install, no platform-specific anything.
+
+## Receiver-side configuration
+
+The CH plugin's schema (`tenx.encoded_events`) materializes `container`, `namespace`, `pod`, and `templateHash` from the JSON envelope at INSERT time, and uses them in the `(container, templateHash)` primary key for granule pruning. This requires events to arrive in **INNER encode** form: encoded body inside an envelope that is parseable JSON.
+
+### Use INNER encode (not OUTER)
+
+INNER (`encode(false)`) compacts only the body. The envelope ships as normal JSON:
+
+```json
+{"log":"~HASH,val1,val2","kubernetes":{"container_name":"X","namespace_name":"Y","pod_name":"Z"}}
+```
+
+OUTER (`encode(true)` or `encode()`) compacts the whole event into a single opaque blob. Under OUTER, the envelope is not parseable JSON, every `JSONExtractString` returns empty, all materialized columns collapse to empty strings, and the `(container, templateHash)` primary key stops doing useful work.
+
+On-disk reduction under INNER on a ZSTD-coded column, measured across three body-size buckets:
+
+| Log body size | INNER vs raw (ZSTD, force-merged) |
+|---|---|
+| Tiny (~60 B body) | ~7% |
+| Typical (~225 B body) | ~74% |
+| Large (~1.1 KB body) | ~79% |
+
+OUTER remains correct for byte-metered destinations like Splunk, where compacting the envelope saves on uncompressed-ingest billing. The Receiver's dual-mode dispatch supports both: ship OUTER to Splunk and INNER to ClickHouse from the same forwarder.
+
+Envelope pruning is not recommended for ClickHouse. On a typical structured-log workload (200-500 byte log bodies), INNER alone reaches 70-78% on-disk reduction via ZSTD column compression; pruning adds only 1-3 percentage points. The engine consumes only four envelope fields (`log`, `kubernetes.container_name`, `kubernetes.namespace_name`, `kubernetes.pod_name`); leaving the rest of the envelope intact preserves dashboard queryability without meaningful storage cost.
+
+Caveat on the numbers above: raw bodies in the measurement were synthesized at roughly 2.5x inner-body length from structured-log templates. That approximates byte volume; real customer pre-encoding text can differ by about 10 percentage points on the absolute figures.
 
 ## Installation
 
@@ -251,6 +280,8 @@ By default the dictionary auto-refreshes every 60-120 seconds (controlled by `LI
 
 ### Loading compact events
 
+Events must arrive in INNER encode form (see [Receiver-side configuration](#receiver-side-configuration); OUTER-encoded blobs will not populate the materialized columns).
+
 ```bash
 clickhouse-client --query "INSERT INTO tenx.encoded_events (raw) FORMAT LineAsString" \
     < encoded.log
@@ -356,6 +387,16 @@ Measured on a 200 MB OpenTelemetry-demo sample:
 Total reduction including the row count drop from grouping: **42% on LZ4, 27% on ZSTD**.
 
 **Why the difference**: ZSTD's pattern detection overlaps significantly with the templating layer. After templating, less structural redundancy remains for ZSTD to find. LZ4 is weaker, so templating contributes more incremental savings.
+
+**INNER savings scale with body size.** On a ZSTD-coded column, INNER reduction against raw bodies varies with the original log size:
+
+| Log body size | INNER vs raw (ZSTD) |
+|---|---|
+| Tiny (~60 B body) | ~7% |
+| Typical (~225 B body) | ~74% |
+| Large (~1.1 KB body) | ~79% |
+
+Encoder savings grow with body size; tiny logs see less because the per-event template-reference overhead is a larger fraction of the row. Note that the 200MB-sample numbers above and the body-size numbers measure different baselines (200MB sample groups across many templates; the body-size table is per-event INNER-vs-raw on force-merged single-segment indices).
 
 To configure codec on a column:
 

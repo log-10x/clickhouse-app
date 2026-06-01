@@ -2,6 +2,13 @@
 
 ## 0.3.0 (Unreleased)
 
+**Receiver-side configuration documented**. INNER encode required on ClickHouse.
+
+- New USER-GUIDE section: **Receiver-side configuration**. Documents that the plugin's schema requires INNER encode (`encode(false)`) because the materialized columns + `(container, templateHash)` primary key depend on parseable JSON in the envelope. OUTER encode (`encode()` / `encode(true)`) is not supported on ClickHouse; it remains correct for byte-metered destinations like Splunk and ships from the same Receiver via dual-mode dispatch.
+- Body-size-aware on-disk measurements. Under ZSTD column compression on force-merged data: tiny bodies (~60 B) ~7% reduction, typical structured-log bodies (~225 B) ~74%, large bodies (~1.1 KB) ~79%. Encoder savings grow with body size; tiny logs see less. Raw bodies in the measurement were synthesized at roughly 2.5x inner-body length, so real customer pre-encoding text can differ by about 10 percentage points on the absolute numbers.
+- Envelope pruning is no longer recommended on ClickHouse. INNER alone covers 70-78% of on-disk savings on a typical workload via ZSTD column compression; pruning adds only 1-3 percentage points and costs dashboard queryability over envelope metadata. The engine reads four envelope fields (`log`, `kubernetes.container_name`, `kubernetes.namespace_name`, `kubernetes.pod_name`); the rest stays intact.
+- README headline updated with the measured typical-workload on-disk number while preserving the codec-dependent phrasing. `install.sql` unchanged; this is a docs + Receiver-config change only.
+
 **Transparent install** — keep existing dashboards working without rewrites.
 
 - New: `tenx-for-clickhouse/transparent-install.template.sql` — a SQL template that renames the existing logs table, creates a compact-events table at a new name, and exposes a VIEW at the original name that decodes compact events on the fly and UNIONs in historical legacy rows. Existing dashboards, alerts, and BI queries continue to query the original table name and get expanded text back.
