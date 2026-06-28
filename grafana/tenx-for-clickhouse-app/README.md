@@ -88,7 +88,7 @@ This hits the materialized columns on `encoded_events` (indexed, sub-50ms even o
 
 Apache 2.0. Same license as the [tenx-for-clickhouse](../../README.md) decoder.
 
-The Log10x Receiver (the upstream component that produces the compact events this plugin reads) is a separate, commercially-licensed product. See [log10x.com](https://log10x.com) for pricing.
+The Log10x Receiver (the upstream component that produces the compact events this plugin reads) is a separate, commercially-licensed product. See [log10x.com](https://www.log10x.com/?utm_source=github&utm_medium=readme&utm_campaign=clickhouse-app&utm_content=inline) for pricing.
 
 ## Support
 

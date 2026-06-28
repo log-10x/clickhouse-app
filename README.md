@@ -172,7 +172,7 @@ This repository contains the ClickHouse-side decoder for Log10x compact events. 
 - A valid Log10x license is required to run the Receiver in production
 
 **Get started:**
-- [Log10x pricing](https://log10x.com/pricing)
+- [Log10x pricing](https://www.log10x.com/pricing?utm_source=github&utm_medium=readme&utm_campaign=clickhouse-app&utm_content=footer)
 - [Documentation](https://doc.log10x.com)
 - [Contact sales](mailto:sales@log10x.com)
 
