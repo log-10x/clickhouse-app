@@ -4,7 +4,7 @@
 
 Lossless [compact](https://doc.log10x.com/run/transform/#compact) log decoding for ClickHouse. Reduces ClickHouse ingest CPU 25-30% and edge-to-cluster bandwidth 35%, with codec-dependent storage savings on top. Drops in as a single SQL file. Existing Grafana dashboards, alerts, and SQL queries keep working against the compact data without modification, via a `tenx.events` view.
 
-Companion to [tenx-for-splunk](https://github.com/log-10x/splunk-app) and [tenx-for-elasticsearch](https://github.com/log-10x/elasticsearch-plugin). Apache 2.0.
+Companion to [tenx-for-splunk](https://github.com/log-10x/splunk-app) and [tenx-for-elasticsearch](https://github.com/log-10x/elasticsearch-plugin), part of [Log10x](https://www.log10x.com/?utm_source=github&utm_medium=readme&utm_campaign=clickhouse-app&utm_content=hero). Apache 2.0.
 
 ## How it works
 
