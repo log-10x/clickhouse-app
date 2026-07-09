@@ -138,7 +138,7 @@ Identical schema, same data, four compression configurations:
 
 ### Decode throughput
 
-| Workload | `tenx.events` (multiIf) | `tenx.events_native` (ISO 8601) |
+| Workload | `tenx.events_native` (multiIf) | `tenx.events` (ISO 8601) |
 |---|---|---|
 | Decode 100 rows | 620 ms | 82 ms |
 | Decode 10,000 rows | 2.26 s | 66 ms |
