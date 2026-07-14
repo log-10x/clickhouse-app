@@ -70,8 +70,8 @@ The install creates two views over the same compact data.
 
 | View | Timestamp output | Speed | When to use |
 |---|---|---|---|
-| `tenx.events` | ISO 8601 (`2025-10-02T01:28:24.000Z`) | Native CH scan (~60 ms full-table) | **Default.** New dashboards, BI tools, anything that accepts ISO 8601 |
-| `tenx.events_native` | Preserves the original format per template (e.g. `2025-10-02 01:28:24`) | ~600 ms fixed cost from multiIf dispatch | Regex matchers that depend on a specific format, compliance log-format preservation |
+| `tenx.events` | ISO 8601 (`2025-10-02T01:28:24.000Z`) | 0.6 s to decode the full 137,418-row sample; 11 ms for 100 rows | **Default.** New dashboards, BI tools, anything that accepts ISO 8601 |
+| `tenx.events_native` | Preserves the original format per template (e.g. `2025-10-02 01:28:24`) | 0.7 s full-table; 29 ms for 100 rows (the multiIf format dispatch adds ~90 ms over the full table) | Regex matchers that depend on a specific format, compliance log-format preservation |
 
 Both views expose identical column shape: `container`, `namespace`, `pod`, `templateHash`, `encoded_log`, `decoded_log`. Switching is a one-identifier query change.
 

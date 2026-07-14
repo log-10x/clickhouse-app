@@ -11,8 +11,32 @@
 --
 -- Creates: database tenx, tables (templates, encoded_events), dictionary,
 -- six SQL functions, and two views: tenx.events (default; ISO 8601
--- timestamps; native scan speed) and tenx.events_native (compatibility;
--- preserves the original timestamp format per template; ~600ms fixed cost).
+-- timestamps) and tenx.events_native (compatibility; preserves the original
+-- timestamp format per template, at a small extra cost for the multiIf
+-- format dispatch). Measured numbers are in section 8.
+--
+-- UPGRADING
+-- ---------
+-- Re-running this file on a live install is safe and is the supported upgrade
+-- path. It never drops tenx.templates or tenx.encoded_events; functions, the
+-- dictionary, and the views are replaced in place.
+--
+-- The views MUST be recreated whenever a tenx_* function changes. ClickHouse
+-- expands SQL function bodies into each view's stored AST at CREATE VIEW time,
+-- so CREATE OR REPLACE FUNCTION on its own leaves the old body running inside
+-- existing views (verify with SHOW CREATE VIEW tenx.events -- the expanded
+-- lambda is visible inline). Re-running this file does that for tenx.events
+-- and tenx.events_native. If you built your own views, materialized views, or
+-- transparent-install views that call tenx_* functions directly, recreate
+-- those too.
+--
+-- To upgrade the decoder WITHOUT touching any table DDL, run upgrade-hotfix.sql
+-- instead: it replaces the two core functions and recreates the two views.
+--
+-- Factory reset (DESTROYS ALL DATA -- templates and every stored event; compact
+-- events cannot be expanded without their templates). Deliberately commented
+-- out; uncomment only if you mean it:
+-- DROP DATABASE IF EXISTS tenx SYNC;
 
 CREATE DATABASE IF NOT EXISTS tenx;
 
@@ -20,9 +44,12 @@ CREATE DATABASE IF NOT EXISTS tenx;
 -- 1. Templates source table with parsed columns materialized at INSERT.
 --    literals[N+1] and slots[N] interleave: literals[i] sits before slots[i],
 --    literals[N+1] is the trailing fragment after the last slot.
+--
+--    IF NOT EXISTS, never DROP: re-running this file on a live install must
+--    not destroy the templates. Without them, every stored compact event is
+--    permanently unexpandable.
 -- ---------------------------------------------------------------------------
-DROP TABLE IF EXISTS tenx.templates;
-CREATE TABLE tenx.templates
+CREATE TABLE IF NOT EXISTS tenx.templates
 (
     templateHash String,
     template     String,
@@ -36,9 +63,10 @@ ORDER BY templateHash;
 
 -- ---------------------------------------------------------------------------
 -- 2. Dictionary exposing the parsed arrays for fast query-time lookup.
+--    OR REPLACE, not DROP + CREATE: the replacement is atomic, so an upgrade
+--    never opens a window where queries hit a missing dictionary.
 -- ---------------------------------------------------------------------------
-DROP DICTIONARY IF EXISTS tenx.templates_dict;
-CREATE DICTIONARY tenx.templates_dict
+CREATE OR REPLACE DICTIONARY tenx.templates_dict
 (
     templateHash String,
     literals     Array(String),
@@ -53,9 +81,10 @@ LIFETIME(MIN 60 MAX 120);
 -- 3. Encoded events table. Same shape as self-hosted: raw JSON envelope
 --    plus materialized columns for the encoded payload, template hash,
 --    and kubernetes envelope fields.
+--
+--    IF NOT EXISTS, never DROP: see section 1.
 -- ---------------------------------------------------------------------------
-DROP TABLE IF EXISTS tenx.encoded_events;
-CREATE TABLE tenx.encoded_events
+CREATE TABLE IF NOT EXISTS tenx.encoded_events
 (
     raw          String,
     log          String  MATERIALIZED JSONExtractString(raw, 'log'),
@@ -141,44 +170,71 @@ CREATE OR REPLACE FUNCTION tenx_substitute_slot AS (value, slot) ->
 --    Renders ALL timestamps as ISO 8601 with millisecond precision, regardless
 --    of the original template's format. Uses one constant call so ClickHouse
 --    keeps everything in its vectorized execution engine.
+--
+--    The $(+%s) and $(epoch) slots pass through untouched, exactly as they do
+--    in section 4. Those slots carry epoch SECONDS, and this function's one
+--    format call reads its input as epoch MILLISECONDS, so formatting them
+--    would not normalise a format, it would report a wrong instant:
+--    1754101012 came out as 1970-01-21T07:15:01.012Z.
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION tenx_substitute_slot_iso AS (value, slot) ->
-    if(slot = '$',
-       value,
-       if(value = '' OR toInt64OrZero(value) = 0,
-          value,
-          formatDateTimeInJodaSyntax(
-              fromUnixTimestamp64Milli(toInt64(value)),
-              'yyyy-MM-dd''T''HH:mm:ss.SSS''Z''',
-              'UTC')));
+    multiIf(
+      slot = '$',                              value,
+      value = '' OR toInt64OrZero(value) = 0,  value,
+      slot = '$(+%s)',                         value,
+      slot = '$(epoch)',                       value,
+      formatDateTimeInJodaSyntax(
+          fromUnixTimestamp64Milli(toInt64(value)),
+          'yyyy-MM-dd''T''HH:mm:ss.SSS''Z''',
+          'UTC'));
 
 -- ---------------------------------------------------------------------------
 -- 6. Core inflate: interleave literals[] with substituted slot values.
 --    Two versions, one per substitute function.
+--
+--    All three arrays are passed as ARGUMENTS to arrayMap, never captured by
+--    the lambda. This is load-bearing, not style. A lambda that indexes into
+--    the arrays (literals[i]) while mapping over range(1, length(literals))
+--    has to CAPTURE literals/slots/values, and ClickHouse replicates every
+--    captured column once per mapped element: a row with N slots materialises
+--    N copies of its N-element arrays, i.e. O(N^2) strings per row. On real
+--    data one 818-literal template is enough to exhaust many GiB and kill a
+--    full-table decode. Array *arguments* are consumed element-wise: O(N).
+--
+--    The two arrayResize calls normalise the arrays to equal length (a
+--    multi-array arrayMap requires it) and subsume the trailing literal:
+--
+--      inner: arrayResize(values, length(slots), '') normalises values to
+--             exactly one per slot. It TRUNCATES surplus fields -- a value
+--             that itself contains a comma splits into extra fields -- and
+--             PADS missing ones with '', which is exactly what the old
+--             i <= length(slots) range and i <= length(values) guard did.
+--             The truncation is what guarantees the pad position added by the
+--             outer resize is really '' and not a surplus field. DO NOT
+--             "simplify" this to a single arrayResize(values, length(literals)):
+--             that is a known bug, and it corrupts any row whose last slot
+--             value contains a comma.
+--      outer: padding slots and values to length(literals) appends one ''
+--             pair at the last position (literals always has exactly one more
+--             element than slots, by construction of the templates table).
+--             tenx_substitute_slot('', '') = '', so the trailing literal is
+--             emitted with nothing after it.
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION tenx_inflate_core AS (literals, slots, values) ->
-    concat(
-      arrayStringConcat(
-        arrayMap(i ->
-          concat(literals[i],
-            if(i <= length(slots),
-               tenx_substitute_slot(if(i <= length(values), values[i], ''), slots[i]),
-               '')),
-          range(1, length(literals))),
-        ''),
-      literals[length(literals)]);
+    arrayStringConcat(
+      arrayMap((lit, slot, val) -> concat(lit, tenx_substitute_slot(val, slot)),
+        literals,
+        arrayResize(slots, length(literals), ''),
+        arrayResize(arrayResize(values, length(slots), ''), length(literals), '')),
+      '');
 
 CREATE OR REPLACE FUNCTION tenx_inflate_core_iso AS (literals, slots, values) ->
-    concat(
-      arrayStringConcat(
-        arrayMap(i ->
-          concat(literals[i],
-            if(i <= length(slots),
-               tenx_substitute_slot_iso(if(i <= length(values), values[i], ''), slots[i]),
-               '')),
-          range(1, length(literals))),
-        ''),
-      literals[length(literals)]);
+    arrayStringConcat(
+      arrayMap((lit, slot, val) -> concat(lit, tenx_substitute_slot_iso(val, slot)),
+        literals,
+        arrayResize(slots, length(literals), ''),
+        arrayResize(arrayResize(values, length(slots), ''), length(literals), '')),
+      '');
 
 -- ---------------------------------------------------------------------------
 -- 7. Outer inflate: extract values from the encoded payload, delegate to core.
@@ -206,23 +262,35 @@ CREATE OR REPLACE FUNCTION tenx_inflate_iso AS (encoded, literals, slots) ->
 --
 --    tenx.events       - **RECOMMENDED DEFAULT**. Normalises all timestamps to
 --                         ISO 8601 with millisecond precision. Single constant
---                         format, fully vectorised. Full-table expansion runs
---                         at native ClickHouse scan speed (~60ms on 137K rows).
---                         Use this view for new dashboards and any consumer
---                         that accepts ISO 8601 timestamps (most Grafana time
---                         pickers, BI tools, application clients).
+--                         format, fully vectorised. Use this view for new
+--                         dashboards and any consumer that accepts ISO 8601
+--                         timestamps (most Grafana time pickers, BI tools,
+--                         application clients).
 --
 --    tenx.events_native - Preserves the original timestamp format per template
 --                         via multiIf dispatch over 17 observed format patterns.
---                         Pays a ~600ms fixed cost per query from the dispatch
---                         layer. Use only when downstream consumers require
---                         the original log timestamp format (regex matchers,
---                         compliance log-format preservation).
+--                         Use when downstream consumers require the original
+--                         log timestamp format (regex matchers, compliance
+--                         log-format preservation).
+--
+--    Measured: full-table decode (SELECT decoded_log, 137,418 rows of the
+--    OpenTelemetry demo corpus, ClickHouse 26.5.1, 8-core Apple Silicon,
+--    server defaults, no memory-limit overrides):
+--
+--      tenx.events         571 ms wall (median of 7), 41 MiB peak memory
+--      tenx.events_native  658 ms wall (median of 7), 78 MiB peak memory
+--
+--    The multiIf dispatch in events_native costs roughly 90 ms on that corpus,
+--    not the "~600 ms fixed cost" earlier revisions of this file claimed. Both
+--    views decode inside 100 MiB; neither one needs a raised max_memory_usage.
+--
+--    OR REPLACE, not DROP + CREATE: readers never see a missing view during an
+--    upgrade. The views MUST be recreated whenever a tenx_* function changes
+--    (see the UPGRADING note at the top of this file).
 -- ---------------------------------------------------------------------------
 
--- Primary view: ISO timestamps, native CH scan speed
-DROP VIEW IF EXISTS tenx.events;
-CREATE VIEW tenx.events AS
+-- Primary view: ISO timestamps
+CREATE OR REPLACE VIEW tenx.events AS
 SELECT
     container, namespace, pod, templateHash,
     log AS encoded_log,
@@ -234,8 +302,7 @@ SELECT
 FROM tenx.encoded_events;
 
 -- Compatibility view: original timestamp format preserved per template
-DROP VIEW IF EXISTS tenx.events_native;
-CREATE VIEW tenx.events_native AS
+CREATE OR REPLACE VIEW tenx.events_native AS
 SELECT
     container, namespace, pod, templateHash,
     log AS encoded_log,

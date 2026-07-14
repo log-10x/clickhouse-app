@@ -30,5 +30,9 @@ Thumbs.db
 
 # Local scratch
 *.log
+# ...but the embedded demo sample is a checked-in test fixture, not scratch.
+# build-sample.py produces these from the full 200 MB dataset precisely so they
+# can live in git; tests/conftest.py and demo/run.sh both load them.
+!demo/sample/*.log
 /tmp/
 /scratch/

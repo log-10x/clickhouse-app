@@ -187,22 +187,22 @@ The install creates two views over the same compact data. They differ only in ti
 
 | View | Timestamp output | Performance |
 |---|---|---|
-| `tenx.events` | Preserves the original format per template (e.g. `2025-10-02 01:28:24`) | Slower per query (~600 ms fixed cost from the multiIf format dispatch) |
-| `tenx.events_native` | Normalizes to ISO 8601 (`2025-10-02T01:28:24.000Z`) regardless of template | Fastest (full table expansion in ~60 ms on the 200 MB sample) |
+| `tenx.events` (default) | Normalizes to ISO 8601 (`2025-10-02T01:28:24.000Z`) regardless of template | Fastest: 11 ms for 100 rows, 0.6 s for the full 137,418-row sample |
+| `tenx.events_native` | Preserves the original format per template (e.g. `2025-10-02 01:28:24`) | The multiIf format dispatch adds roughly 20 ms on small result sets and 90 ms over the full table |
 
 Switching is one identifier change in your query. Same columns, same shape.
 
-**Use `tenx.events_native` when:**
+**Use `tenx.events` when:**
 - Your downstream tooling parses ISO 8601 (most Grafana time pickers, most BI tools, most application code)
 - Query latency matters
 - You don't have regex matchers that depend on a specific timestamp format
 
-**Use `tenx.events` when:**
+**Use `tenx.events_native` when:**
 - You have alerts or regex matchers that look for a specific date format string
 - Compliance requires that log format be preserved end-to-end
-- You can absorb the ~600 ms per-query setup cost
+- Your templates use `$(+%s)` or `$(epoch)` slots and you want the raw epoch value untouched (both views pass those through since 0.2.1)
 
-If you can't decide, start with `tenx.events_native`. It's faster and most consumers prefer ISO.
+If you can't decide, start with `tenx.events`. It's the default, it's faster, and most consumers prefer ISO.
 
 ## Codec selection
 
@@ -238,15 +238,21 @@ Storage savings are one of several cost components. The codec choice does not af
 
 Measured on the 200 MB sample (197,430 raw events → 137,418 compact events + 3,473 templates):
 
-| Workload | `tenx.events` (multiIf) | `tenx.events_native` (ISO 8601) |
-|---|---|---|
-| Baseline scan, no expansion | 0.017 s | 0.017 s |
-| Decode 100 rows | 0.620 s | 0.082 s |
-| Decode 10,000 rows | 2.26 s | 0.066 s |
-| Decode full table (137,418 rows) | 6.7 s | **0.060 s** |
-| Filter pushdown then expand (76 rows) | 0.604 s | sub-50 ms |
+Measured on ClickHouse 26.5.1 at server defaults (no `max_memory_usage` override), median of 5 runs, every workload materializing `decoded_log`:
 
-The ISO variant runs at near-native ClickHouse scan speed (~2.3M rows/sec) because it stays inside the vectorized execution engine. The multiIf variant pays a ~600 ms per-query setup cost from format dispatch but preserves original timestamp formats.
+| Workload | `tenx.events` (ISO 8601, default) | `tenx.events_native` (multiIf) |
+|---|---|---|
+| Baseline scan, no expansion | 10 ms | 10 ms |
+| Decode 100 rows | 11 ms | 29 ms |
+| Decode 10,000 rows | 30 ms | 61 ms |
+| Filter pushdown then expand (274 rows) | 14 ms | 31 ms |
+| Decode full table (137,418 rows) | **0.6 s**, 41 MiB peak | **0.7 s**, 78 MiB peak |
+
+Full-table wall time varies about 0.55-0.79 s run to run; the memory figures are stable.
+
+Both views stay inside ClickHouse's vectorized execution engine. The multiIf variant adds a format-dispatch cost — around 20 ms on small result sets, 90 ms over the full table — and preserves original timestamp formats in exchange.
+
+> Releases before 0.2.1 could not decode the full table at all: the inflate functions were O(N^2) in the slot count and died with `MEMORY_LIMIT_EXCEEDED` at 7.2 GiB. If a full-table decode runs out of memory, apply `tenx-for-clickhouse/upgrade-hotfix.sql`.
 
 For interactive observability queries that filter on cheap columns (`container`, `templateHash`, `namespace`, time range) before expanding, both views complete in sub-second time on typical result sets.
 
@@ -351,13 +357,22 @@ SYSTEM RELOAD DICTIONARY tenx.templates_dict;
 
 If the template isn't in the source table, it was never produced by the Receiver for that event. Check the Receiver logs.
 
-### Query latency on `tenx.events` is ~600ms per query
+### A full-table decode fails with MEMORY_LIMIT_EXCEEDED
 
-You're using the format-preserving view for queries where the multiIf setup cost dominates. Switch to `tenx.events_native` if ISO 8601 timestamps are acceptable for that query. Same data, same shape, ~10x faster on small queries.
+You are on a decoder older than 0.2.1. The inflate functions were O(N^2) in the slot count, and one wide template is enough to exhaust the server memory limit. Apply `tenx-for-clickhouse/upgrade-hotfix.sql` — it replaces the two core functions and recreates the two views, touches no table DDL, and loses no data. Do not raise `max_memory_usage` to work around it.
 
-### Decoded timestamps look wrong on `tenx.events_native`
+The views have to be recreated, which is what the hotfix does: ClickHouse expands SQL function bodies into a view's stored AST at `CREATE VIEW` time, so replacing the function alone leaves the old body running inside the view. Any view of your own that calls `tenx_*` directly needs recreating too:
 
-`tenx.events_native` renders all timestamps as ISO 8601 with millisecond precision in UTC, regardless of the original template's format. This is by design. If you need the original format preserved, use `tenx.events`.
+```sql
+SELECT database, name FROM system.tables
+WHERE engine LIKE '%View%' AND create_table_query LIKE '%tenx_%';
+```
+
+### Decoded timestamps look wrong on `tenx.events`
+
+`tenx.events` renders all timestamps as ISO 8601 with millisecond precision in UTC, regardless of the original template's format. This is by design. If you need the original format preserved, use `tenx.events_native`.
+
+Exception: `$(+%s)` and `$(epoch)` slots. Those carry epoch **seconds**, not milliseconds, and before 0.2.1 the ISO view formatted them as milliseconds — `1754101012` came back as `1970-01-21T07:15:01.012Z`, a wrong instant rather than a reformatted one. Both views now pass those slots through untouched. If you see 1970 dates, upgrade.
 
 ### Dictionary not updating after template inserts
 
