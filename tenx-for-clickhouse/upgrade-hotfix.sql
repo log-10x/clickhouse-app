@@ -30,6 +30,24 @@
 -- Recreate those too. To find them:
 --   SELECT database, name FROM system.tables
 --   WHERE engine LIKE '%View%' AND create_table_query LIKE '%tenx_%';
+--
+-- BEHAVIOR CHANGE, templates with $(+%s) or $(epoch) slots only
+-- tenx_substitute_slot_iso is replaced below as well. Those two slots carry
+-- epoch SECONDS and were being formatted as epoch MILLISECONDS, so tenx.events
+-- rendered them as a wrong instant (1754101012 -> 1970-01-21T07:15:01.012Z).
+-- They now pass through untouched, which is what tenx.events_native already
+-- did. Every other slot decodes byte-for-byte as before.
+
+CREATE OR REPLACE FUNCTION tenx_substitute_slot_iso AS (value, slot) ->
+    multiIf(
+      slot = '$',                              value,
+      value = '' OR toInt64OrZero(value) = 0,  value,
+      slot = '$(+%s)',                         value,
+      slot = '$(epoch)',                       value,
+      formatDateTimeInJodaSyntax(
+          fromUnixTimestamp64Milli(toInt64(value)),
+          'yyyy-MM-dd''T''HH:mm:ss.SSS''Z''',
+          'UTC'));
 
 CREATE OR REPLACE FUNCTION tenx_inflate_core AS (literals, slots, values) ->
     arrayStringConcat(

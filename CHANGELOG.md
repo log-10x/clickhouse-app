@@ -53,6 +53,15 @@ work (`EXPLAIN` shows no inflate node; `query_log` shows 24 bytes read). The
 "~600 ms fixed cost" for the multiIf view was equally unfounded: measured, the
 dispatch costs about 90 ms on the demo corpus.
 
+**Fixed: `tenx.events` rendered `$(+%s)` / `$(epoch)` slots as a wrong instant.**
+`tenx_substitute_slot_iso` was missing the two passthrough branches its `multiIf`
+sibling has. Those slots carry epoch **seconds**, and the ISO function's single
+format call reads its input as epoch **milliseconds**, so the default view turned
+`1754101012` into `1970-01-21T07:15:01.012Z`. That is not a format normalisation,
+it is the wrong point in time. Both slot kinds now pass through untouched, matching
+`tenx.events_native`. Behavior change for templates that use them; every other slot
+decodes byte-for-byte as before.
+
 ## 0.2.0 (Unreleased)
 
 Post-Grok-debate architecture polish + Grafana app plugin scaffold.

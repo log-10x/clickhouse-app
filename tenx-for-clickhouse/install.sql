@@ -170,16 +170,23 @@ CREATE OR REPLACE FUNCTION tenx_substitute_slot AS (value, slot) ->
 --    Renders ALL timestamps as ISO 8601 with millisecond precision, regardless
 --    of the original template's format. Uses one constant call so ClickHouse
 --    keeps everything in its vectorized execution engine.
+--
+--    The $(+%s) and $(epoch) slots pass through untouched, exactly as they do
+--    in section 4. Those slots carry epoch SECONDS, and this function's one
+--    format call reads its input as epoch MILLISECONDS, so formatting them
+--    would not normalise a format, it would report a wrong instant:
+--    1754101012 came out as 1970-01-21T07:15:01.012Z.
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION tenx_substitute_slot_iso AS (value, slot) ->
-    if(slot = '$',
-       value,
-       if(value = '' OR toInt64OrZero(value) = 0,
-          value,
-          formatDateTimeInJodaSyntax(
-              fromUnixTimestamp64Milli(toInt64(value)),
-              'yyyy-MM-dd''T''HH:mm:ss.SSS''Z''',
-              'UTC')));
+    multiIf(
+      slot = '$',                              value,
+      value = '' OR toInt64OrZero(value) = 0,  value,
+      slot = '$(+%s)',                         value,
+      slot = '$(epoch)',                       value,
+      formatDateTimeInJodaSyntax(
+          fromUnixTimestamp64Milli(toInt64(value)),
+          'yyyy-MM-dd''T''HH:mm:ss.SSS''Z''',
+          'UTC'));
 
 -- ---------------------------------------------------------------------------
 -- 6. Core inflate: interleave literals[] with substituted slot values.
