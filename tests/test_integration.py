@@ -44,10 +44,14 @@ def test_view_returns_decoded_rows(ch, sample_loaded, ch_database):
 def test_iso_view_renders_iso_timestamps(ch, sample_loaded, ch_database):
     # Find a row whose template includes a timestamp slot; assert the ISO
     # variant produces an ISO 8601 timestamp.
+    #
+    # The ISO variant is `events`. `events_native` is the one that preserves
+    # the template's original format, so it renders '2025-10-02 00:12:37' and
+    # this assertion never held against it.
     rows = ch.query(
         f"""
         SELECT decoded_log
-        FROM {ch_database}.events_native
+        FROM {ch_database}.events
         WHERE templateHash IN (
             SELECT templateHash FROM {ch_database}.templates
             WHERE hasAny(slots, ['$(yyyy-MM-dd HH:mm:ss)',

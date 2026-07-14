@@ -48,7 +48,7 @@ The tenx-for-clickhouse port replicates the same architectural pattern as [tenx-
                                      │ tenx_inflate(...)       │
                                      └─────────────────────────┘
                                               ▲
-                                              │ SELECT * FROM tenx.events[_iso]
+                                              │ SELECT * FROM tenx.events
                                               │
                             ┌─────────────────┴─────────────────┐
                             │                                   │
@@ -64,7 +64,7 @@ The tenx-for-clickhouse port replicates the same architectural pattern as [tenx-
 | Splunk KV Store (MongoDB-backed) | `tenx.templates` table + `tenx.templates_dict` Dictionary | ClickHouse Dictionary is an in-process in-memory hash table backed by a regular table. No external KV system, no cross-system join at search time. |
 | Scheduled `consume_kv` search | `LIFETIME(MIN 60 MAX 120)` auto-refresh | Native ClickHouse feature; no scheduled job to maintain |
 | Splunk compact events index | `tenx.encoded_events` MergeTree | Standard ClickHouse columnar storage with materialized columns for filter pushdown |
-| `tenx-inflate` SPL macro | `tenx.events` view + `tenx_inflate` SQL UDF | The view is the user surface; no macro language to extend |
+| `tenx-inflate` SPL macro | `tenx.events` view + `tenx_inflate_iso` SQL UDF | The view is the user surface; no macro language to extend |
 | JS search hook | Not needed | The view IS the query surface; no in-flight query rewriting |
 | Alert action for KV population | Not needed | Dictionary auto-refreshes from source table |
 | Python search command | Not needed | Pure SQL throughout |
@@ -73,11 +73,11 @@ The ClickHouse architecture is structurally simpler because ClickHouse exposes n
 
 ## Why pure SQL
 
-An earlier iteration of this port shipped a Rust executable UDF alongside the SQL implementation, on the assumption that a compiled binary would outperform pure SQL. Benchmarks proved the opposite: the SQL ISO-only path expands the full 137K-row sample in ~60 ms versus the Rust UDF's 5.8 s, because the SQL path stays inside ClickHouse's vectorized execution engine while the Rust path pays per-row stdin/stdout IPC.
+An earlier iteration of this port is said to have shipped a Rust executable UDF alongside the SQL implementation, and earlier revisions of this document claimed a benchmark ("~60 ms SQL vs 5.8 s Rust") as the reason it was dropped. **That comparison is not reproducible and should not be relied on.** No Rust code exists in this repository or any related one, and the "~60 ms" half of it was an artifact — see [Measured performance](#measured-performance). The performance argument for pure SQL is retired; what stands is the operational one:
 
-The Rust UDF retained one narrow advantage — slightly lower per-query setup cost on small queries with format preservation — but the cost in operational complexity (multi-arch binaries, platform-specific install scripts, separate Cloud/self-hosted paths, Cargo build pipeline in CI) was disproportionate to the marginal performance edge.
-
-The pure-SQL path also collapses the Cloud-vs-self-hosted distinction. ClickHouse Cloud blocks executable UDFs; self-hosted allows them. With SQL-only, the same `install.sql` works everywhere.
+- ClickHouse Cloud blocks executable UDFs; self-hosted allows them. With SQL only, the same `install.sql` works everywhere, and the Cloud-vs-self-hosted distinction collapses.
+- No multi-arch binaries, no platform-specific install scripts, no Cargo build pipeline in CI.
+- The measured SQL numbers are good enough on their own terms: a full-table decode of the 137,418-row demo corpus runs in about 0.6 s inside 41 MiB. Whether a compiled UDF would beat that is an open question, and an unimportant one at this scale.
 
 ## The `formatDateTimeInJodaSyntax` constant-format constraint
 
@@ -99,7 +99,7 @@ multiIf(
 )
 ```
 
-Each branch passes a constant. ClickHouse compiles each call independently. **Preserves the original format per template.** Pays a ~600 ms fixed cost per query because of the multiIf evaluation overhead. Exposed as `tenx.events`.
+Each branch passes a constant. ClickHouse compiles each call independently. **Preserves the original format per template.** The dispatch costs about 90 ms on a full-table decode of the demo corpus (roughly 15% on top of the ISO path), not the "~600 ms fixed cost" earlier revisions of this document claimed. Exposed as `tenx.events_native`.
 
 ### Solution B: single constant format for all timestamps
 
@@ -107,7 +107,9 @@ Each branch passes a constant. ClickHouse compiles each call independently. **Pr
 formatDateTimeInJodaSyntax(ts, 'yyyy-MM-dd''T''HH:mm:ss.SSS''Z''', 'UTC')
 ```
 
-One constant, fully vectorized. **All timestamps render as ISO 8601** regardless of original template. No per-row dispatch. Exposed as `tenx.events_native`.
+One constant, fully vectorized. **All timestamps render as ISO 8601** regardless of original template. No per-row dispatch. Exposed as `tenx.events`, the default view.
+
+`$(+%s)` and `$(epoch)` slots pass through untouched in both variants. They carry epoch seconds, while the format calls read epoch milliseconds, so formatting them would report a wrong instant rather than normalise a format.
 
 Both views ship by default; the customer queries whichever matches their downstream consumer's expectations.
 
@@ -138,13 +140,27 @@ Identical schema, same data, four compression configurations:
 
 ### Decode throughput
 
-| Workload | `tenx.events_native` (multiIf) | `tenx.events` (ISO 8601) |
-|---|---|---|
-| Decode 100 rows | 620 ms | 82 ms |
-| Decode 10,000 rows | 2.26 s | 66 ms |
-| Decode full table (137,418 rows) | 6.7 s | **60 ms** |
+Re-measured on ClickHouse 26.5.1 at **server defaults** (no `max_memory_usage` override), 137,418 compact events, median of 5 runs. Every workload below materialises `decoded_log`.
 
-The ISO variant achieves ~2.3M rows/sec (effectively native ClickHouse scan speed) because every operation stays inside the vectorized engine. The multiIf variant pays a per-query setup cost from format dispatch but preserves original timestamp formats.
+| Workload | `tenx.events` (ISO 8601, default) | `tenx.events_native` (multiIf) |
+|---|---|---|
+| Scan, no expansion (`encoded_log` only) | 10 ms | 10 ms |
+| Decode 100 rows | 11 ms | 29 ms |
+| Decode 10,000 rows | 30 ms | 61 ms |
+| Filter pushdown, then decode 274 rows | 14 ms | 31 ms |
+| Decode full table (137,418 rows) | **0.6 s**, 41 MiB peak | **0.7 s**, 78 MiB peak |
+| Decode full table, before the O(N²) fix | `MEMORY_LIMIT_EXCEEDED` @ 7.2 GiB | `MEMORY_LIMIT_EXCEEDED` @ 7.2 GiB |
+
+Full-table wall time varies about 0.55–0.79 s run to run on this machine; the memory figures are stable to two decimals. The multiIf dispatch costs roughly 90 ms over the full table and about 20 ms on small result sets.
+
+#### About the numbers this table replaces
+
+The previous version of this table claimed 60 ms for a full-table ISO decode and 6.7 s for the multiIf view. Both were wrong, in different directions.
+
+- **The 60 ms** came from a `SELECT count()` against the view. ClickHouse prunes the unreferenced `decoded_log` expression out of the plan entirely: `EXPLAIN` shows no inflate node, and `query_log` records **24 bytes read, 1 row**. The query never decoded anything. Any benchmark of a decode path has to consume `decoded_log` — hash it, write it to `Null`, or select it.
+- **The 6.7 s** understated a hard failure. Before the O(N²) capture fix, *neither* view could decode the full table at default settings; both died with `MEMORY_LIMIT_EXCEEDED` after allocating 7.2 GiB. A single 818-literal template (275 rows of 21 KB container dumps) accounted for ~97% of the materialisation, and those 275 rows on their own exhausted 6.5 GiB.
+
+The fix (`install.sql` section 6, and `upgrade-hotfix.sql` for existing installs) passes the `literals` / `slots` / `values` arrays to `arrayMap` as **arguments** rather than letting the lambda capture them. ClickHouse replicates each captured column once per mapped element, so an indexing lambda over N slots materialises N copies of its N-element arrays. As arguments they are consumed element-wise, which is O(N).
 
 ### Transport (edge → ClickHouse)
 
@@ -180,13 +196,43 @@ LIMIT 100;
 
 This is the same pattern that applies to any computed column in ClickHouse and is not specific to tenx-for-clickhouse.
 
+## Upgrading: views inline the function body
+
+ClickHouse expands SQL UDF bodies into a view's stored AST at `CREATE VIEW` time. `SHOW CREATE VIEW tenx.events` shows the whole lambda inline; the view does not hold a reference to the function.
+
+Two consequences, both operational:
+
+1. **`CREATE OR REPLACE FUNCTION` alone changes nothing for existing views.** They keep running the body they were created with. A decoder fix applied only to the functions looks applied — `SHOW CREATE FUNCTION` reports the new body — while every query through the view still executes the old one. The views must be recreated.
+2. **User-created views are on their own.** Any view, materialized view, or transparent-install view that calls `tenx_*` directly holds its own inlined copy and needs recreating too:
+
+   ```sql
+   SELECT database, name FROM system.tables
+   WHERE engine LIKE '%View%' AND create_table_query LIKE '%tenx_%';
+   ```
+
+Re-running `install.sql` handles the two shipped views. It is safe on a live install: the data tables are `CREATE TABLE IF NOT EXISTS`, and the dictionary and views are `CREATE OR REPLACE`. `upgrade-hotfix.sql` does the same for the decoder alone, with no table DDL at all.
+
+## Lambdas capture columns: the O(N²) rule
+
+Worth knowing before extending the decoder. A ClickHouse lambda that reaches an array by index has to **capture** that array, and ClickHouse replicates every captured column once per mapped element. Mapping over N elements while indexing into an N-element array therefore materialises N copies of it — O(N²) strings per row:
+
+```sql
+-- O(N^2): literals/slots/values are captured, then replicated N times
+arrayMap(i -> concat(literals[i], f(values[i], slots[i])), range(1, length(literals)))
+
+-- O(N): the arrays are arguments, consumed element-wise
+arrayMap((lit, slot, val) -> concat(lit, f(val, slot)), literals, slots2, values2)
+```
+
+The captured form is what shipped through 0.2.0. It worked on narrow templates and collapsed on wide ones: one 818-literal template in the demo corpus made a full-table decode impossible at default settings. Multi-array `arrayMap` requires equal lengths, which is why the current implementation normalises with `arrayResize` — see the comment in `install.sql` section 6 for why the nested resize cannot be collapsed into one.
+
 ## Design choices not taken
 
 For completeness, options considered and rejected:
 
 | Option | Why not |
 |---|---|
-| Ship a Rust executable UDF | Pure SQL benchmarks faster on bulk workloads; binary install adds disproportionate operational complexity for narrow performance gains |
+| Ship a Rust executable UDF | ClickHouse Cloud blocks executable UDFs, so it would fork the install path; multi-arch binaries and a Cargo pipeline in CI are a large operational cost. The SQL path decodes the full demo corpus in ~0.6 s, which is enough. (Earlier revisions justified this with a Rust-vs-SQL benchmark; that benchmark is not reproducible and is no longer claimed.) |
 | Materialize the expanded column at INSERT time | Defeats the storage savings; expanded form is 3x larger than compact |
 | Pre-translate Java SimpleDateFormat to ClickHouse format codes at INSERT time | Joda syntax already accepts Java patterns natively; translation is unnecessary work |
 | Use ClickHouse's built-in JSON column type for the envelope | Would parse the envelope eagerly per row; the materialized columns approach extracts only the fields needed for filter pushdown |

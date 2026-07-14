@@ -59,6 +59,23 @@ ISO_CASES = [
         [],
         "~UNKNOWN,a,b",
     ),
+    (
+        # $(+%s) carries epoch SECONDS. The ISO function's format call reads
+        # epoch MILLISECONDS, so formatting it would report a wrong instant
+        # (1754101012 -> 1970-01-21T07:15:01.012Z), not a reformatted one.
+        "epoch-seconds slot $(+%s) passes through, not formatted as ms",
+        "~EPOCHs,1754101012,checkout",
+        ["ts=", " svc=", ""],
+        ["$(+%s)", "$"],
+        "ts=1754101012 svc=checkout",
+    ),
+    (
+        "epoch-seconds slot $(epoch) passes through, not formatted as ms",
+        "~EPOCHe,1754101012",
+        ["at ", " done"],
+        ["$(epoch)"],
+        "at 1754101012 done",
+    ),
 ]
 
 
