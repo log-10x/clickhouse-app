@@ -75,7 +75,7 @@ Post-Grok-debate architecture polish + Grafana app plugin scaffold.
 - **Pattern Explorer page**: top-N templates by estimated cost in the selected time range; one-click "copy templateHash filter" for paste-into-dashboard.
 - **Template cost attribution dashboard** (bundled): templates known, compact events in range, distinct templates, top-25 templates by bytes, event volume by container, top-5 templates over time.
 - Sits on top of an existing ClickHouse data source (Grafana official or Altinity). Does not install a data source.
-- Apache 2.0. Same license as the decoder.
+- MIT. Same license as the decoder.
 
 ## 0.1.0 (Unreleased)
 

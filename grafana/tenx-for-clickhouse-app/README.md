@@ -1,10 +1,10 @@
 # 10x for ClickHouse — Grafana app plugin
 
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
 A Grafana app plugin that adds a **Pattern Explorer** and **pre-built dashboards** on top of the [tenx-for-clickhouse](../../README.md) decoder. Surfaces compact log volume by template, ranks templates by estimated cost, and lets users filter dashboard queries by `templateHash` in one click.
 
-Companion to the SQL decoder. Both are Apache 2.0.
+Companion to the SQL decoder. Both are MIT.
 
 ## What it shows
 
@@ -86,7 +86,7 @@ This hits the materialized columns on `encoded_events` (indexed, sub-50ms even o
 
 ## License
 
-Apache 2.0. Same license as the [tenx-for-clickhouse](../../README.md) decoder.
+MIT. Same license as the [tenx-for-clickhouse](../../README.md) decoder.
 
 The Log10x Receiver (the upstream component that produces the compact events this plugin reads) is a separate, commercially-licensed product. See [log10x.com](https://www.log10x.com/?utm_source=github&utm_medium=readme&utm_campaign=clickhouse-app&utm_content=inline) for pricing.
 

@@ -1,12 +1,12 @@
 # tenx-for-clickhouse
 
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
 Lossless [compact](https://doc.log10x.com/run/transform/#compact) log decoding for ClickHouse. Reduces ClickHouse ingest CPU 25-30% and edge-to-cluster bandwidth 35%, with codec-dependent storage savings on top. Drops in as a single SQL file. Existing Grafana dashboards, alerts, and SQL queries keep working against the compact data without modification, via a `tenx.events` view.
 
 > **Blog:** [Expanding compact logs in ClickHouse with plain SQL](https://www.log10x.com/blog/clickhouse-logs-in-plain-sql/?utm_source=github&utm_medium=readme&utm_campaign=clickhouse-app&utm_content=blog). How compact logs are read back in ClickHouse with plain SQL and no plugin.
 
-Companion to [tenx-for-splunk](https://github.com/log-10x/splunk-app) and [tenx-for-elasticsearch](https://github.com/log-10x/elasticsearch-plugin), part of [Log10x](https://www.log10x.com/?utm_source=github&utm_medium=readme&utm_campaign=clickhouse-app&utm_content=hero). Apache 2.0.
+Companion to [tenx-for-splunk](https://github.com/log-10x/splunk-app) and [tenx-for-elasticsearch](https://github.com/log-10x/elasticsearch-plugin), part of [Log10x](https://www.log10x.com/?utm_source=github&utm_medium=readme&utm_campaign=clickhouse-app&utm_content=hero). MIT.
 
 ## How it works
 
@@ -129,7 +129,7 @@ CI tests the install against ClickHouse 24.8 (LTS), 25.3, and latest on every PR
 
 ```
 clickhouse-app/
-├── LICENSE                           Apache 2.0
+├── LICENSE                           MIT
 ├── NOTICE                            Copyright notice
 ├── SECURITY.md                       Vulnerability reporting policy
 ├── README.md                         This file
@@ -157,7 +157,7 @@ clickhouse-app/
 
 ## License
 
-This repository is licensed under the [Apache License 2.0](LICENSE).
+This repository is licensed under the [MIT License](LICENSE).
 
 ### Important: Log10x Receiver requires a commercial license
 
@@ -165,7 +165,7 @@ This repository contains the ClickHouse-side decoder for Log10x compact events. 
 
 | Component | License |
 |---|---|
-| This repository (ClickHouse decoder) | Apache 2.0 (open source) |
+| This repository (ClickHouse decoder) | MIT (open source) |
 | Log10x Receiver | Commercial license required |
 
 **What this means:**
